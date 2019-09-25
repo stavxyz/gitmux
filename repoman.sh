@@ -554,6 +554,7 @@ perform_rebase
 echo "Now create a pull request from ${DESTINATION_PR_BRANCH_NAME} into ${destination_branch}"
 
 PR_DESCRIPTION=$(printf "%s\n" \
+  "------------------------------" \
   "Sync from ${source_uri} \`${GIT_BRANCH}\` revision \`${GIT_SHA}\`" \
   "" \
   "# Hello" \
