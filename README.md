@@ -44,10 +44,10 @@ The script can be used to create brand new [destination] repositories from _any 
  **3) I want to manage the rebase myself in order to cherry-pick specific chanages.
     Is that possible?**
 
-    Sure is. Just supply -i to the script and you will be given a \`cd\`
-    command that will allow you to drop into the temporary workspace.
-    From there, you can complete the interactive rebase and push your
-    changes to the remote named 'destination'. The distinction between
-    remote names in the workspace is very imporant. To double-check, use
-    `git remote --verbose show` inside the repoman git workspace.
+   Sure is. Just supply -i to the script and you will be given a \`cd\`
+   command that will allow you to drop into the temporary workspace.
+   From there, you can complete the interactive rebase and push your
+   changes to the remote named 'destination'. The distinction between
+   remote names in the workspace is very imporant. To double-check, use
+   `git remote --verbose show` inside the repoman git workspace.
 
