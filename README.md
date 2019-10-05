@@ -1,7 +1,5 @@
-# cicd
-Chef CICD pipelines and associated scripts
 
-## repoman
+# repoman
 
 The `repoman.sh` script is provided to help sync changes (**including commit history**) _across_ repositories. 
 
