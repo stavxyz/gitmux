@@ -78,6 +78,8 @@ createRepository() {
     errxit "Repository owner and project are required. Usage: \`createRepository <ownerName> <repositoryName>\`"
   fi
 
+  git yunotrap
+
   _hubcreateopts=''
   case ${_visibility} in
     public) : ;;
