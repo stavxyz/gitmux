@@ -212,8 +212,6 @@ done
 shift $((OPTIND-1))
 [ "${1:-}" = "--" ] && shift
 
-bad
-
 # Check required variables/arguments.
 if [[ -z "$source_repository" ]]; then
   errxit "Source repository url or path is required"
