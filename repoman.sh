@@ -55,7 +55,7 @@
 #     `git remote --verbose show` inside the repoman git workspace.
 
 # Undefined variables are errors.
-set -euo pipefail
+set -euoE pipefail
 
 errcho ()
 {
