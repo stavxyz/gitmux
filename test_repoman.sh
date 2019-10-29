@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # Undefined variables are errors.
-set -euo pipefail
+set -euoE pipefail
 
 errcho ()
 {
@@ -30,13 +30,7 @@ function log () {
 # Constants / Arguments
 # To override, user should export $GITHUB_HOST before running this test script.
 export GITHUB_HOST=${GITHUB_HOST:-'github.com'}
-export GITHUB_OWNER=${GITHUB_OWNER:-}
-
-if [[ -z "${GITHUB_HOST:-}" ]]; then
-  errxit "GITHUB_HOST must be set."
-elif [[ -z "${GITHUB_OWNER:-}" ]]; then
-  errxit "GITHUB_OWNER must be set."
-fi
+export GITHUB_OWNER=${GITHUB_OWNER:-samstav}
 
 
 TMPTESTWORKDIR=$(mktemp -t 'repoman-test-XXXX' -d || errxit "Failed to create tmpdir.")
@@ -54,16 +48,21 @@ cleanup() {
   echo "🛀"
 }
 
+# shellcheck disable=SC2120
 errcleanup() {
   if [ -n "${1:-}" ]; then
-    errcho "⏩ Error at line ${1}."
+    _errmsg="⏩ Error at line ${1}"
+    if [ -n "${2:-}" ]; then
+      _errmsg="${_errmsg} in function '${2}'"
+    fi
+    errcho "${_errmsg}"
   fi
   errcho "⛔️ Tests failed."
   cleanup
   exit 1
 }
 
-trap 'errcleanup ${LINENO}' ERR
+trap 'errcleanup ${LINENO} ${FUNCNAME:-}' ERR
 
 rands() {
   # Usage: rands <len>
@@ -102,10 +101,11 @@ createRepository() {
   ########## </HUB CREATE REPO> ################
 }
 
+
 #####################################
 #### Setup source git repository.
 #####################################
-SOURCE_REPOSITORY_NAME="repoman_test_source_$(rands)"
+SOURCE_REPOSITORY_NAME="repoman_test_source_$(rands 8)"
 mkdir -p "${SOURCE_REPOSITORY_NAME}"
 _pushd "${SOURCE_REPOSITORY_NAME}" && SOURCE_REPOSITORY_PATH="$(pwd)"
 git init
@@ -123,7 +123,7 @@ _popd
 #####################################
 #### Setup destination git repository.
 #####################################
-DESTINATION_REPOSITORY_NAME="repoman_test_destination_$(rands)"
+DESTINATION_REPOSITORY_NAME="repoman_test_destination_$(rands 8)"
 mkdir -p "${DESTINATION_REPOSITORY_NAME}"
 _pushd "${DESTINATION_REPOSITORY_NAME}"
 DESTINATION_REPOSITORY_PATH="$(pwd)"
@@ -151,17 +151,20 @@ echo
 ####    - rebase strategy 'ours'
 ##########################################
 
-./repoman.sh -v -r "${SOURCE_REPOSITORY_PATH}" -t "${DESTINATION_REPOSITORY_PATH}"
-_pushd "${DESTINATION_REPOSITORY_PATH}"
-git checkout update-from-something-new-${_sha}-rebase-strategy-ours
-if output=$(cat hello.txt) && [ "${output}" == "Hello World" ];then
-  echo "${output}" && echo "✅ Success"
-  # reset
-  git checkout destination_current_branch
-else
-  errcleanup
-fi
-_popd
+test_defaults_with_existing_upstream_destination() {
+  ./repoman.sh -v -r "${SOURCE_REPOSITORY_PATH}" -t "${DESTINATION_REPOSITORY_PATH}"
+  _pushd "${DESTINATION_REPOSITORY_PATH}"
+  git checkout "update-from-something-new-${_sha}-rebase-strategy-ours"
+  local output=''
+  if output=$(cat hello.txt) && [ "${output}" == "Hello World" ];then
+    echo "${output}" && echo "✅ Success"
+    # reset
+    git checkout destination_current_branch
+  else
+    errcleanup
+  fi
+  _popd
+}
 
 echo
 echo "*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*"
@@ -173,15 +176,19 @@ echo
 ####    - use existing github repository
 ####    - rebase strategy 'theirs'
 ##########################################
-./repoman.sh -v -r "${SOURCE_REPOSITORY_PATH}" -t "${DESTINATION_REPOSITORY_PATH}" -p place_content_in_this_subdir -b master -X theirs
-_pushd "${DESTINATION_REPOSITORY_PATH}"
-git checkout update-from-something-new-${_sha}-rebase-strategy-theirs
-if output=$(cat place_content_in_this_subdir/hello.txt) && [ "${output}" == "Hello World" ];then
-  echo "${output}" && echo "✅ Success"
-else
-  errcleanup
-fi
-_popd
+
+test_rebase_strategy_theirs_with_existing_upstream_destination() {
+  ./repoman.sh -v -r "${SOURCE_REPOSITORY_PATH}" -t "${DESTINATION_REPOSITORY_PATH}" -p place_content_in_this_subdir -b master -X theirs
+  _pushd "${DESTINATION_REPOSITORY_PATH}"
+  git checkout "update-from-something-new-${_sha}-rebase-strategy-theirs"
+  local output=''
+  if output=$(cat place_content_in_this_subdir/hello.txt) && [ "${output}" == "Hello World" ];then
+    echo "${output}" && echo "✅ Success"
+  else
+    errcleanup
+  fi
+  _popd
+}
 
 echo
 echo "*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*"
@@ -194,20 +201,33 @@ echo
 ####    - rebase strategy 'ours'
 ##########################################
 
-NEW_REPO_URI="${GITHUB_OWNER}/repoman_test_destination_$(rands)"
-repositoriesToDelete+=("${NEW_REPO_URI}")
-NEW_REPO_NO_UPSTREAM_YET="git@${GITHUB_HOST}:${NEW_REPO_URI}.git"
-./repoman.sh -v -c -r "${SOURCE_REPOSITORY_PATH}" -t "${NEW_REPO_NO_UPSTREAM_YET}"
-_pushd "${DESTINATION_REPOSITORY_PATH}"
-git checkout update-from-something-new-${_sha}-rebase-strategy-ours
-if output=$(cat hello.txt) && [ "${output}" == "Hello World" ];then
-  echo "${output}" && echo "✅ Success"
-  # reset
-  git checkout destination_current_branch
+test_defaults_destination_dne_yet() {
+  NEW_REPO_URI="${GITHUB_OWNER}/repoman_test_destination_$(rands 8)"
+  repositoriesToDelete+=("${NEW_REPO_URI}")
+  NEW_REPO_NO_UPSTREAM_YET="git@${GITHUB_HOST}:${NEW_REPO_URI}.git"
+  ./repoman.sh -v -c -r "${SOURCE_REPOSITORY_PATH}" -t "${NEW_REPO_NO_UPSTREAM_YET}"
+  _pushd "${DESTINATION_REPOSITORY_PATH}"
+  git checkout "update-from-something-new-${_sha}-rebase-strategy-ours"
+  local output=''
+  if output=$(cat hello.txt) && [ "${output}" == "Hello World" ];then
+    echo "${output}" && echo "✅ Success"
+    # reset
+    git checkout destination_current_branch
+  else
+    errcleanup
+  fi
+  _popd
+}
+
+run_test_cases() {
+  test_defaults_with_existing_upstream_destination
+  test_rebase_strategy_theirs_with_existing_upstream_destination
+  test_defaults_destination_dne_yet
+}
+
+
+if run_test_cases; then
+  echo 'Tests completed successfully.' && cleanup
 else
-  errcleanup
+  errxit "Tests failed."
 fi
-_popd
-
-
-echo 'Tests completed successfully.' && cleanup
