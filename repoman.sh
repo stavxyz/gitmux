@@ -505,40 +505,57 @@ fi
 #  - in this context, 'theirs' is the destination repo. if this script is being run 
 #    as a sync/update rather than an initial repo-ectomy, we _probably_ want 'theirs'.
 
+MAX_RETRIES=50
 perform_rebase () {
  log "Rebase options --> ' ${REBASE_OPTIONS} '"
  # shellcheck disable=SC2086
- if [[ $(echo " ${REBASE_OPTIONS} " | sed -E 's/.*(\ -i\ |\ --interactive\ ).*/INTERACTIVE/') == "INTERACTIVE" ]]; then
-   echo "Interactive rebase detected."
-   git rebase "${REBASE_OPTIONS}" "destination/${destination_branch}"
-   log "Rebase completed successfully."
-   echo "After rebasing, this might be useful: \`git push destination ${DESTINATION_PR_BRANCH_NAME}\`"
-   echo "Navigate to the temp workspace at ${_WORKSPACE} to complete the workflow."
-   echo "cd ${_WORKSPACE}"
- elif ! output="$(git rebase ${REBASE_OPTIONS} "destination/${destination_branch}" 2>&1)"; then
-   # I only undestood this block long enough to write it.
-   errcho "${output}"
-   if [[ "${output}" =~ "invalid upstream" ]]; then
-     errxit "Invalid upstream. Does '${destination_branch}' exist in '${destination_repository}'?"
-   fi
-   errcho "Rebase failed, trying to --continue..."
-   n=1
-   while [ $n -le 50 ] && ! output="$(git rebase --continue 2>&1)";do
-     errcho "_______________________________________________"
-     errcho "${output}"
-     if [[ "${output}" =~ "needs merge" ]]; then
-       echo "Renamed/unchanged files need merge, using \`git add --all\`"
-       export GIT_EDITOR=true
-       git add --all
-     elif [[ "${output}" =~ "If you wish to commit it anyway" ]]; then
-       echo "Committing anyway with \`git commit --allow-empty --no-edit\`"
-       git commit --allow-empty --no-edit
-     fi
-     errcho "[${n}] Trying to --continue again..."
-     (( n += 1 ))
-     git rebase --continue && break
-     errcho "_______________________________________________"
-   done
+  if [[ $(echo " ${REBASE_OPTIONS} " | sed -E 's/.*(\ -i\ |\ --interactive\ ).*/INTERACTIVE/') == "INTERACTIVE" ]]; then
+    echo "Interactive rebase detected."
+    git rebase "${REBASE_OPTIONS}" "destination/${destination_branch}"
+    log "Rebase completed successfully."
+    echo "After rebasing, this might be useful: \`git push destination ${DESTINATION_PR_BRANCH_NAME}\`"
+    echo "Navigate to the temp workspace at ${_WORKSPACE} to complete the workflow."
+    echo "cd ${_WORKSPACE}"
+  elif ! output="$(git rebase ${REBASE_OPTIONS} "destination/${destination_branch}" 2>&1)"; then
+    # I only undestood this block long enough to write it.
+    if [[ "${output}" =~ "invalid upstream" ]]; then
+      errcho "${output}"
+      errxit "Invalid upstream. Does '${destination_branch}' exist in '${destination_repository}'?"
+    elif [[ "${output}" =~ ^fatal ]]; then
+      errcho '📛 Something went wrong during rebase.'
+      errcho "${output}"
+      return 1
+    fi
+    errcho "${output}"
+    errcho "Rebase incomplete, trying to --continue..."
+    n=1
+    while (( n < MAX_RETRIES )) && ! output="$(git rebase --continue 2>&1)";do
+      errcho "_______________________________________________"
+      errcho "${output}"
+      if [[ "${output}" =~ "needs merge" ]]; then
+        echo "Renamed/unchanged files need merge, using \`git add --all\`"
+        export GIT_EDITOR=true
+        git add --all
+      elif [[ "${output}" =~ "If you wish to commit it anyway" ]]; then
+        echo "Committing anyway with \`git commit --allow-empty --no-edit\`"
+        git commit --allow-empty --no-edit
+      elif [[ "${output}" =~ ^fatal ]]; then
+        errcho '📛 Something went wrong during rebase.'
+        errcho "${output}"
+        return 1
+      fi
+      errcho "[${n}] Trying to --continue again..."
+      (( n += 1 ))
+      git rebase --continue && break
+      errcho "_______________________________________________"
+    done
+    if (( n > MAX_RETRIES )); then
+      errcho "Max retries exceeded on rebase. Aborting."
+      git rebase --abort
+      errcho "${output}"
+      return 1
+    fi
+
    log "Pushing to branch ${DESTINATION_PR_BRANCH_NAME}"
    git push --progress --atomic --verbose --force-with-lease destination "${DESTINATION_PR_BRANCH_NAME}"
  else
@@ -548,6 +565,7 @@ perform_rebase () {
    git push --progress --atomic --verbose --force-with-lease destination "${DESTINATION_PR_BRANCH_NAME}"
  fi
 }
+
 
 perform_rebase
 
