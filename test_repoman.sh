@@ -227,7 +227,10 @@ run_test_cases() {
 
 
 if run_test_cases; then
-  echo 'Tests completed successfully.' && cleanup
+  echo '✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨'
+  echo '✨  All tests completed successfully. ✨'
+  echo '✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨'
+  cleanup
 else
   errxit "Tests failed."
 fi
