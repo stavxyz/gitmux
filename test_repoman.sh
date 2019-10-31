@@ -219,10 +219,46 @@ test_defaults_destination_dne_yet() {
   _popd
 }
 
+echo
+echo "*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*"
+echo
+
+##########################################
+#### Test 4:
+####    - defaults with -c (create repo for me)
+####    - repoman should create repository for me
+####    - rebase strategy 'ours'
+####    - add github team infraconfig/infracore
+##########################################
+
+test_defaults_add_orgteam() {
+  NEW_REPO_PROJECT_NAME="repoman_test_destination_$(rands 8)"
+  repositoriesToDelete+=("${GITHUB_OWNER}/${NEW_REPO_PROJECT_NAME}")
+  NEW_REPO_NO_UPSTREAM_YET="git@${GITHUB_HOST}:${GITHUB_OWNER}/${NEW_REPO_PROJECT_NAME}.git"
+  ./repoman.sh -v -c -r "${SOURCE_REPOSITORY_PATH}" -t "${NEW_REPO_NO_UPSTREAM_YET}" -z infraconfig/infracore
+  log "Now cloning repository which should have been created on GitHub by repoman."
+  git clone "${NEW_REPO_NO_UPSTREAM_YET}"
+  # This should create a directory called $NEW_REPO_PROJECT_NAME
+  _pushd "${NEW_REPO_PROJECT_NAME}"
+  # update-from-something-new-23eae47-rebase-strategy-ours
+  git checkout "update-from-something-new-${_sha}-rebase-strategy-ours"
+  local output=''
+  if output=$(cat hello.txt) && [ "${output}" == "Hello World" ];then
+    echo "${output}" && echo "✅ Success"
+    # reset
+    git checkout destination_current_branch
+  else
+    errcleanup
+  fi
+  _popd
+}
+
+
 run_test_cases() {
   test_defaults_with_existing_upstream_destination
   test_rebase_strategy_theirs_with_existing_upstream_destination
   test_defaults_destination_dne_yet
+  test_defaults_add_orgteam
 }
 
 
