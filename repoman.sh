@@ -153,7 +153,7 @@ function show_help()
 {
   # shellcheck disable=SC1111
   cat << EOF
-  Usage: ${0##*/} [-r SOURCE_REPOSITORY] [-d SUBDIRECTORY_FILTER] [-g GITREF] [-t DESTINATION_REPOSITORY] [-p DESTINATION_PATH] [-b DESTINATION_BRANCH] [-X REBASE_STRATEGY_OPTION | -o REBASE_OPTIONS] [-i] [-s] [-c] [-k] [-v] [-h]
+  Usage: ${0##*/} [-r SOURCE_REPOSITORY] [-d SUBDIRECTORY_FILTER] [-g GITREF] [-t DESTINATION_REPOSITORY] [-p DESTINATION_PATH] [-b DESTINATION_BRANCH] [-X REBASE_STRATEGY_OPTION | -o REBASE_OPTIONS] [-z GITHUB_TEAM -z ...] [-i] [-s] [-c] [-k] [-v] [-h]
   “The life of a repo man is always intense.”
   -r <repository>              Path/url to the [remote] source repository. Required.
   -t <destination_repository>  Path/url to the [remote] destination repository. Required.
@@ -166,6 +166,7 @@ function show_help()
   -i                           Perform an interactive rebase. If you use this option you will need to push your resulting branch to the remote named 'destination' and submit a pull request manually.
   -s                           Submit a pull request to your destination. Requires \`hub\`. Only valid for non-local destination repositories. (default: off)
   -c                           Create the destination repository if it does not exist. Requires \`hub\`. (default: off)
+  -z                           Add this team to your destination repository. Use <org>/<team> notation e.g. engineering-org/firmware-team May be specified multiple times. Requires \`hub\`. Only valid for non-local destination repositories.
   -k                           Keep the tmp git workspace around instead of cleaning it up (useful for debugging). (default: off)
   -v                           Verbose ( default: off )
   -h                           Print help / usage
@@ -175,7 +176,7 @@ EOF
 # Rebase option related flags are mutually exclusive
 _rebase_option_flags=''
 
-while getopts "h?vr:d:g:t:p:b:o:X:sick" OPT; do
+while getopts "h?vr:d:g:t:p:z:b:o:X:sick" OPT; do
   case "$OPT" in
     r)  source_repository=$OPTARG
       ;;
@@ -191,9 +192,11 @@ while getopts "h?vr:d:g:t:p:b:o:X:sick" OPT; do
       ;;
     X) [ -n "${_rebase_option_flags}" ] && show_help && errxit "" "error: -${OPT} cannot be used with -o" || _rebase_option_flags='set' MERGE_STRATEGY_OPTION_FOR_REBASE=$OPTARG
       ;;
-    o) [ -n "${_rebase_option_flags}" ] && show_help && errxit "" "error: -${OPT} cannot be used with -X" || _rebase_option_flags='set' REBASE_OPTIONS=$OPTARG
+    z) [ ! -x "$(command -v hub)" ] && show_help && errxit "" "error: -${OPT} requires hub" || GITHUB_TEAMS+=("$OPTARG")
       ;;
     s)  SUBMIT_PR=true
+      ;;
+    o) [ -n "${_rebase_option_flags}" ] && show_help && errxit "" "error: -${OPT} cannot be used with -X" || _rebase_option_flags='set' REBASE_OPTIONS=$OPTARG
       ;;
     i)  INTERACTIVE_REBASE=true
       ;;
@@ -212,16 +215,34 @@ done
 shift $((OPTIND-1))
 [ "${1:-}" = "--" ] && shift
 
-# Check required variables/arguments.
+#
+# Argument validation.
+#
 if [[ -z "$source_repository" ]]; then
   errxit "Source repository url or path is required"
-elif [[ -z "$subdirectory_filter" ]]; then
-  errcho "No subdirectory filter specified! Entire source repository will be extracted."
 elif [[ -z "$destination_repository" ]]; then
   errxit "Destination repository url or path is required"
 elif [[ -z "${GITHUB_HOST:-}" ]]; then
   errxit "GITHUB_HOST must be set."
 fi
+
+if [[ -z "$subdirectory_filter" ]]; then
+  errcho "No subdirectory filter specified! Entire source repository will be extracted."
+fi
+
+if [ ${#GITHUB_TEAMS[@]} -gt 0 ]; then
+  log "validating github teams formats (length: ${#GITHUB_TEAMS[@]} ) --> ${GITHUB_TEAMS[*]}"
+  for orgteam in "${GITHUB_TEAMS[@]}"; do
+    if [[ ! "${orgteam}" =~ "/" ]]; then
+      errxit "team format should be <org>/<team>"
+    fi
+  done
+fi
+
+#
+# </Argument validation.>
+#
+
 
 # Export this for `hub`.
 export GITHUB_HOST=${GITHUB_HOST}
@@ -568,6 +589,46 @@ perform_rebase () {
 
 
 perform_rebase
+
+#
+# GitHub API functions
+#
+
+function get_team_id() {
+  local _org_name="${1}"
+  local _team_name="${2}"
+  # GET /orgs/:org/teams/:team_slug
+  hub api --method GET "orgs/${_org_name}/teams/${_team_name}" | jq --exit-status -r '.id'
+}
+
+function add_team_to_repository() {
+  local _team_id="${1}"
+  local _owner="${2}"
+  local _repository="${3}"
+  # choices: pull, push, admin
+  local _permission="${4:-admin}"
+  # PUT /teams/:team_id/repos/:owner/:repo
+  log "Adding ${_team_id} to ${_owner}/${_repository}"
+  echo "{\"permission\": \"${_permission}\"}" | hub api --input - --color=always --method PUT "teams/${_team_id}/repos/${_owner}/${_repository}"
+  echo "✅ Added ${_team_id} to ${_owner}/${_repository} with '${_permission}' permissions"
+}
+
+#
+# </GitHub API Functions>
+#
+
+if [ -x "$(command -v hub)" ] && [ ${#GITHUB_TEAMS[@]} -gt 0 ]; then
+  # shellcheck disable=SC2016
+  echo "\`hub\` is installed. Adding teams ( ${GITHUB_TEAMS[*]} ) to ${destination_repository}"
+  for orgteam in "${GITHUB_TEAMS[@]}"; do
+    _org=$(echo "${orgteam}" | sed -E 's/(.*)\/(.*)/\1/')
+    _team=$(echo "${orgteam}" | sed -E 's/(.*)\/(.*)/\2/')
+    team_id=$(get_team_id "${_org}" "${_team}")
+    log "Adding ${orgteam} ( ${team_id} ) to ${destination_owner}/${destination_project}"
+    add_team_to_repository "${team_id}" "${destination_owner}" "${destination_project}"
+  done
+fi
+
 
 echo "Now create a pull request from ${DESTINATION_PR_BRANCH_NAME} into ${destination_branch}"
 
