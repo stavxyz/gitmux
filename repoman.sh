@@ -118,7 +118,7 @@ OPTIND=1
 # Set defaults
 SOURCE_REPOSITORY="${SOURCE_REPOSITORY:-}"
 SUBDIRECTORY_FILTER="${SUBDIRECTORY_FILTER:-}"
-GIT_REF="${GIT_REF:-}"
+SOURCE_GIT_REF="${SOURCE_GIT_REF:-}"
 DESTINATION_PATH="${DESTINATION_PATH:-}"
 DESTINATION_REPOSITORY="${DESTINATION_REPOSITORY:-}"
 DESTINATION_BRANCH="${DESTINATION_BRANCH:-master}"
@@ -133,7 +133,7 @@ GITHUB_HOST="${GITHUB_HOST:-}"
 
 source_repository="${SOURCE_REPOSITORY}"
 subdirectory_filter="${SUBDIRECTORY_FILTER}"
-git_ref="${GIT_REF}"
+source_git_ref="${SOURCE_GIT_REF}"
 destination_path="${DESTINATION_PATH}"
 destination_repository="${DESTINATION_REPOSITORY}"
 destination_branch="${DESTINATION_BRANCH}"
@@ -182,7 +182,7 @@ while getopts "h?vr:d:g:t:p:z:b:o:X:sick" OPT; do
       ;;
     d)  subdirectory_filter="$(stripslashes "${OPTARG}")" # Is relative to the git repo, should not have leading slashes.
       ;;
-    g)  git_ref=$OPTARG
+    g)  source_git_ref=$OPTARG
       ;;
     t)  destination_repository=$OPTARG
       ;;
@@ -341,7 +341,7 @@ fi
 log "source_repository         ==> ${source_repository}"
 log "source_url                ==> ${source_url}"
 log "subdirectory_filter       ==> ${subdirectory_filter}"
-log "git_ref                   ==> ${git_ref}"
+log "source_git_ref            ==> ${source_git_ref}"
 log "destination_path          ==> ${destination_path}"
 log "destination_repository    ==> ${destination_repository}"
 log "destination_url           ==> ${destination_url}"
@@ -368,8 +368,9 @@ _WORKSPACE=$(pwd)
 #git fetch --update-shallow --shallow-since=1month --update-head-ok --progress origin master
 
 # If a non-default ref is specified, fetch it explicitly and perform a checkout.
-if [[ -n "$git_ref" ]]; then
-  git fetch origin "${git_ref}" && git checkout "origin/${git_ref}"
+if [[ -n "${source_git_ref}" ]]; then
+  log "A specific git ref was given; checking out ${source_git_ref}"
+  git fetch origin "${source_git_ref}" && git checkout --no-guess "${source_git_ref}"
 fi
 
 GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
@@ -633,7 +634,7 @@ fi
 echo "Now create a pull request from ${DESTINATION_PR_BRANCH_NAME} into ${destination_branch}"
 
 PR_DESCRIPTION=$(printf "%s\n" \
-  "Sync from ${source_uri} \`${GIT_BRANCH}\` revision \`${GIT_SHA}\`" \
+  "Sync from ${source_uri} \`${source_git_ref:-${GIT_BRANCH}}\` revision \`${GIT_SHA}\`" \
   "" \
   "# Hello" \
   "This is an automated pull request." \
@@ -641,8 +642,8 @@ PR_DESCRIPTION=$(printf "%s\n" \
   "## Source repository details" \
   "Source repository: ${source_repository}" \
   "Source url: ${source_url}" \
-  "Source git ref (if provided): \`${GIT_REF:-n/a}\`" \
-  "Source git branch: ${GIT_BRANCH} (\`${GIT_SHA}\`)" \
+  "Source git ref (if provided): \`${source_git_ref:-n/a}\`" \
+  "Source git branch: ${source_git_ref:-${GIT_BRANCH}} (\`${GIT_SHA}\`)" \
   "Directory within source repository (if provided, else entire repository): \`${subdirectory_filter:-/}\`" \
   "Repository url: https://${GITHUB_HOST}/${source_owner}/${source_project}/tree/${GIT_SHA}/${SUBDIRECTORY_FILTER}" \
   "" \
