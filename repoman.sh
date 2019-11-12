@@ -579,14 +579,16 @@ perform_rebase () {
       return 1
     fi
 
-   log "Pushing to branch ${DESTINATION_PR_BRANCH_NAME}"
-   git push --progress --atomic --verbose --force-with-lease destination "${DESTINATION_PR_BRANCH_NAME}"
- else
-   # rebase in elif condition succeeded
-   log "Rebase completed successfully."
-   log "Pushing to branch ${DESTINATION_PR_BRANCH_NAME}"
-   git push --progress --atomic --verbose --force-with-lease destination "${DESTINATION_PR_BRANCH_NAME}"
- fi
+    log "Pushing to branch ${DESTINATION_PR_BRANCH_NAME}"
+    git push --tags destination
+    git push --follow-tags --progress --atomic --verbose --force-with-lease destination "${DESTINATION_PR_BRANCH_NAME}"
+  else
+    # rebase in elif condition succeeded
+    log "Rebase completed successfully."
+    log "Pushing to branch ${DESTINATION_PR_BRANCH_NAME}"
+    git push --tags destination
+    git push --follow-tags --progress --atomic --verbose --force-with-lease destination "${DESTINATION_PR_BRANCH_NAME}"
+  fi
 }
 
 
