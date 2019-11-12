@@ -361,6 +361,7 @@ _pushd "${REPOMAN_TMP_WORKSPACE}"
 _GITDIR="tmp-${source_owner}_${source_project}"
 git clone "${source_repository}" "${_GITDIR}"
 _pushd "${_GITDIR}"
+git fetch --tags origin
 _WORKSPACE=$(pwd)
 
 # The following is unnecessary when doing a full clone.
@@ -370,7 +371,7 @@ _WORKSPACE=$(pwd)
 # If a non-default ref is specified, fetch it explicitly and perform a checkout.
 if [[ -n "${source_git_ref}" ]]; then
   log "A specific git ref was given; checking out ${source_git_ref}"
-  git fetch origin "${source_git_ref}" && git checkout --no-guess "${source_git_ref}"
+  git fetch --tags origin "${source_git_ref}" && git checkout --no-guess "${source_git_ref}"
 fi
 
 GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
@@ -447,7 +448,7 @@ fi
 log "subdirectory filter options --> ${_subdirectory_filter_options}"
 # Might need --unshallow
 #git filter-branch --prune-empty ${_subdirectory_filter_options}
-git filter-branch ${_subdirectory_filter_options}
+git filter-branch --tag-name-filter cat ${_subdirectory_filter_options}
 log "git filter-branch completed."
 git status
 log "Adding 'destination' remote --> ${destination_repository}"
