@@ -123,6 +123,7 @@ DESTINATION_PATH="${DESTINATION_PATH:-}"
 DESTINATION_REPOSITORY="${DESTINATION_REPOSITORY:-}"
 DESTINATION_BRANCH="${DESTINATION_BRANCH:-master}"
 SUBMIT_PR="${SUBMIT_PR:-false}"
+REV_LIST_FILES="${REV_LIST_FILES:-}"
 INTERACTIVE_REBASE="${INTERACTIVE_REBASE:-false}"
 CREATE_NEW_REPOSITORY="${CREATE_NEW_REPOSITORY:-false}"
 KEEP_TMP_WORKSPACE="${KEEP_TMP_WORKSPACE:-false}"
@@ -137,6 +138,7 @@ source_git_ref="${SOURCE_GIT_REF}"
 destination_path="${DESTINATION_PATH}"
 destination_repository="${DESTINATION_REPOSITORY}"
 destination_branch="${DESTINATION_BRANCH}"
+rev_list_files="${REV_LIST_FILES}"
 _verbose=0
 
 function stripslashes () {
@@ -161,6 +163,7 @@ function show_help()
   -g <gitref>                  Git ref for the [remote] source repository. (default: null, which just uses the HEAD of the default branch, probably 'master', after cloning.) Can be any value valid for \`git checkout <ref>\` e.g. a branch, commit, or tag.
   -p <destination_path>        Destination path for the filtered repository content ( default: '/' which places the repository content into the root of the destination repository. e.g. to place source repository's /app directory content into the /lib directory of your destination repository, supply -p lib )
   -b <destination_branch>      Destination (a.k.a. base) branch in destination repository against which, changes will be rebased. Further, if [-s] is supplied, the resulting content will be submitted with this destination branch as the target (base) for the pull request. (Default: master)
+  -l <rev-list options>        Options passed to git rev-list during \`git filter-branch\`. Can be used to specify individual files to be brought into the [new] repository. e.g. -l '--all -- file1.txt file2.txt' For more info see git's documentation for git filter-branch under the parameters for <rev-list options>…
   -o <rebase_options>          Options to supply to \`git rebase\`. If set and includes --interactive or -i, this script will drop you into the workspace to complete the workflow manually (Note: cannot use with -X)
   -X <option>                  Rebase strategy option, e.g. ours/patience. Defaults to 'theirs' (Note: cannot use with -o)
   -i                           Perform an interactive rebase. If you use this option you will need to push your resulting branch to the remote named 'destination' and submit a pull request manually.
@@ -176,11 +179,13 @@ EOF
 # Rebase option related flags are mutually exclusive
 _rebase_option_flags=''
 
-while getopts "h?vr:d:g:t:p:z:b:o:X:sick" OPT; do
+while getopts "h?vr:d:g:t:p:z:b:l:o:X:sick" OPT; do
   case "$OPT" in
     r)  source_repository=$OPTARG
       ;;
     d)  subdirectory_filter="$(stripslashes "${OPTARG}")" # Is relative to the git repo, should not have leading slashes.
+      ;;
+    l)  rev_list_files=$OPTARG && errcho "WE FOUND [ $OPTARG ]"
       ;;
     g)  source_git_ref=$OPTARG
       ;;
@@ -445,10 +450,23 @@ else
   _subdirectory_filter_options=''
 fi
 
+# git filter-branch can take `git rev-list` options for
+# additional filtering control. For example, advanced
+# users can target specific files for their [new] repo.
+# <rev-list options>...
+
+log "rev-list options --> ${rev_list_files}"
 log "subdirectory filter options --> ${_subdirectory_filter_options}"
 # Might need --unshallow
 #git filter-branch --prune-empty ${_subdirectory_filter_options}
-git filter-branch --tag-name-filter cat ${_subdirectory_filter_options}
+log "git filter-branch --tag-name-filter cat ${_subdirectory_filter_options:-} -- --all ${rev_list_files}"
+
+git filter-branch --tag-name-filter cat ${_subdirectory_filter_options} \
+  --index-filter "
+    git read-tree --empty
+    git reset \$GIT_COMMIT -- $rev_list_files
+    " \
+  -- --all ${rev_list_files}
 log "git filter-branch completed."
 git status
 log "Adding 'destination' remote --> ${destination_repository}"
