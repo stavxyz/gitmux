@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 
-# See ./repoman -h for more info.
+# See ./gitmux -h for more info.
 #
 # What does this script do?
 #   This script creates a pull request on a destination repository
 #   with content from a source repository and maintains all commit
 #   history for all synced/forked files.
 #
-#   See ./repoman -h for more info.
+#   See ./gitmux -h for more info.
 #
 # The pull request mechanism allows for discrete modifications
 # to be made in both the source and destination repositories.
@@ -52,7 +52,7 @@
 #     From there, you can complete the interactive rebase and push your
 #     changes to the remote named 'destination'. The distinction between
 #     remote names in the workspace is very imporant. To double-check, use
-#     `git remote --verbose show` inside the repoman git workspace.
+#     `git remote --verbose show` inside the gitmux git workspace.
 
 # Undefined variables are errors.
 set -euoE pipefail
@@ -78,15 +78,15 @@ _popd () {
 }
 
 cleanup() {
-  if [[ -d ${REPOMAN_TMP_WORKSPACE:-} ]]; then
+  if [[ -d ${gitmux_TMP_WORKSPACE:-} ]]; then
     # shellcheck disable=SC2086
     if [ ${KEEP_TMP_WORKSPACE:-false} = true ]; then
       # implement -k (keep) and check for it
-      errcho "You may navigate to ${REPOMAN_TMP_WORKSPACE} to complete the workflow manually (or, try again)."
+      errcho "You may navigate to ${gitmux_TMP_WORKSPACE} to complete the workflow manually (or, try again)."
     else
       errcho "Cleaning up."
-      rm -rf "${REPOMAN_TMP_WORKSPACE}"
-      errcho "Deleted repoman tmp workspace ${REPOMAN_TMP_WORKSPACE}"
+      rm -rf "${gitmux_TMP_WORKSPACE}"
+      errcho "Deleted gitmux tmp workspace ${gitmux_TMP_WORKSPACE}"
       echo "🛀"
     fi
   fi
@@ -94,7 +94,7 @@ cleanup() {
 
 # shellcheck disable=SC2120
 errcleanup() {
-  errcho "⛔️ Repoman execution failed."
+  errcho "⛔️ gitmux execution failed."
   if [ -n "${1:-}" ]; then
     errcho "⏩ Error at line ${1}."
   fi
@@ -360,9 +360,9 @@ log "DESTINATION PROJECT OWNER ==> ${destination_owner}"
 log "DESTINATION PROJECT NAME ==> ${destination_project}"
 log "DESTINATION PROJECT URI ==> ${destination_uri}"
 
-REPOMAN_TMP_WORKSPACE=$(mktemp -t 'repoman-XXXXX' -d || errxit "Failed to create tmpdir.")
-log "Working in tmpdir ${REPOMAN_TMP_WORKSPACE}"
-_pushd "${REPOMAN_TMP_WORKSPACE}"
+gitmux_TMP_WORKSPACE=$(mktemp -t 'gitmux-XXXXX' -d || errxit "Failed to create tmpdir.")
+log "Working in tmpdir ${gitmux_TMP_WORKSPACE}"
+_pushd "${gitmux_TMP_WORKSPACE}"
 _GITDIR="tmp-${source_owner}_${source_project}"
 git clone "${source_repository}" "${_GITDIR}"
 _pushd "${_GITDIR}"
@@ -418,7 +418,7 @@ if [[ -n "$destination_path" ]] && ! [[ "${destination_path}" == '/' ]]; then
     # First create a random file in case the directory is empty
     # For some odd reason. (Delete afterward)
     _rname="$(openssl rand -hex 8).txt"
-    echo "Created by repoman. Serves two puposes, one of which is acting like a .gitkeep and the other has to do with shopt -s extglob. Delete me." > "${_rname}"
+    echo "Created by gitmux. Serves two puposes, one of which is acting like a .gitkeep and the other has to do with shopt -s extglob. Delete me." > "${_rname}"
     git add --force --intent-to-add "${_rname}"
     shopt -s extglob
     # Move everything except __tmp__ into __tmp__
@@ -494,7 +494,7 @@ if ! _repo_existence="$(git fetch destination 2>&1)"; then
     log "hub is creating your new repository now!"
     NEW_REPOSITORY_DESCRIPTION="New repository from ${source_url} (${subdirectory_filter:-/})"
     # hub create [-poc] [-d DESCRIPTION] [-h HOMEPAGE] [[ORGANIZATION/]NAME]
-    TMPHUBCREATEWORKDIR=$(mktemp -t 'repoman-hub-create-destination-XXXXXXXXXXXXX' -d || errxit "Failed to create tmpdir.")
+    TMPHUBCREATEWORKDIR=$(mktemp -t 'gitmux-hub-create-destination-XXXXXXXXXXXXX' -d || errxit "Failed to create tmpdir.")
     # Note: If you want to move the --orphan bits below, remove --bare from the next line.
     _pushd "${TMPHUBCREATEWORKDIR}" && git init --bare --quiet
     hub create -d "${NEW_REPOSITORY_DESCRIPTION}" "${destination_owner}/${destination_project}"
@@ -509,14 +509,14 @@ if ! _repo_existence="$(git fetch destination 2>&1)"; then
     # This will also help remind us where this repository came from.
     git status
     # A local 'master' branch probably already exists
-    git checkout --orphan "repoman-dest-${destination_branch}"
+    git checkout --orphan "gitmux-dest-${destination_branch}"
     # Unstage everything (from ${DESTINATION_PR_BRANCH_NAME})
     git rm -r --cached .
     git status
     log "Creating empty commit for its own sake"
-    git commit --message 'Hello: this repository was created by repoman.' --allow-empty
+    git commit --message 'Hello: this repository was created by gitmux.' --allow-empty
     # git push destination "${destination_branch}"
-    git push destination "repoman-dest-${destination_branch}:master"
+    git push destination "gitmux-dest-${destination_branch}:master"
     # Now go back to the build branch.
     log "Going back to build branch --> ${DESTINATION_PR_BRANCH_NAME}"
     git checkout --force "${DESTINATION_PR_BRANCH_NAME}"
