@@ -185,7 +185,7 @@ while getopts "h?vr:d:g:t:p:z:b:l:o:X:sick" OPT; do
       ;;
     d)  subdirectory_filter="$(stripslashes "${OPTARG}")" # Is relative to the git repo, should not have leading slashes.
       ;;
-    l)  rev_list_files=$OPTARG && errcho "WE FOUND [ $OPTARG ]"
+    l)  rev_list_files=$OPTARG
       ;;
     g)  source_git_ref=$OPTARG
       ;;
@@ -394,7 +394,7 @@ log "GIT_SHA ==> ${GIT_SHA}"
 # `git filter-branch` using --subdirectory-filter doesnt
 # keep the actual directory specified, *only its contents*.
 # So, lets create the directory structure we ultimately want
-# *in advance* which is chef/.
+# *in advance*.
 
 # If a destination path is specified, do some tricks.
 if [[ -n "$destination_path" ]] && ! [[ "${destination_path}" == '/' ]]; then
@@ -459,16 +459,25 @@ log "rev-list options --> ${rev_list_files}"
 log "subdirectory filter options --> ${_subdirectory_filter_options}"
 # Might need --unshallow
 #git filter-branch --prune-empty ${_subdirectory_filter_options}
-log "git filter-branch --tag-name-filter cat ${_subdirectory_filter_options:-} -- --all ${rev_list_files}"
+log "git filter-branch --tag-name-filter cat ${_subdirectory_filter_options:-} [...] ${rev_list_files}"
 
-git filter-branch --tag-name-filter cat ${_subdirectory_filter_options} \
-  --index-filter "
+# WARNING: git-filter-branch has a glut of gotchas...
+# Yeah, we know.
+export FILTER_BRANCH_SQUELCH_WARNING=1
+if [ -n "${rev_list_files}" ]; then
+  log "Targeting paths/revisions: ${rev_list_files}"
+  git filter-branch --tag-name-filter cat ${_subdirectory_filter_options} \
+    --index-filter "
     git read-tree --empty
-    git reset \$GIT_COMMIT -- $rev_list_files
-    " \
-  -- --all ${rev_list_files}
+    git reset \$GIT_COMMIT -- ${rev_list_files}
+   " \
+   -- --all -- ${rev_list_files}
+else
+  git filter-branch --tag-name-filter cat ${_subdirectory_filter_options}
+fi
+
 log "git filter-branch completed."
-git status
+log "$(git status)"
 log "Adding 'destination' remote --> ${destination_repository}"
 git remote add destination "${destination_repository}"
 
@@ -683,7 +692,7 @@ if [ -x "$(command -v hub)" ] && [ ${SUBMIT_PR} = true ]; then
   # shellcheck disable=SC2016
   echo '`hub` is installed. Submitting PR'
   hub pull-request --message "${PR_DESCRIPTION}" \
-    --labels sync \
+    --labels gitmux \
     --browse \
     --no-edit --base "${destination_uri}:${destination_branch}" \
     --head "${destination_uri}:${DESTINATION_PR_BRANCH_NAME}"
