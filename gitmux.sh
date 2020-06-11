@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 
-# See ./repoman -h for more info.
+# See ./gitmux -h for more info.
 #
 # What does this script do?
 #   This script creates a pull request on a destination repository
 #   with content from a source repository and maintains all commit
 #   history for all synced/forked files.
 #
-#   See ./repoman -h for more info.
+#   See ./gitmux -h for more info.
 #
 # The pull request mechanism allows for discrete modifications
 # to be made in both the source and destination repositories.
@@ -52,7 +52,7 @@
 #     From there, you can complete the interactive rebase and push your
 #     changes to the remote named 'destination'. The distinction between
 #     remote names in the workspace is very imporant. To double-check, use
-#     `git remote --verbose show` inside the repoman git workspace.
+#     `git remote --verbose show` inside the gitmux git workspace.
 
 # Undefined variables are errors.
 set -euoE pipefail
@@ -78,15 +78,15 @@ _popd () {
 }
 
 cleanup() {
-  if [[ -d ${REPOMAN_TMP_WORKSPACE:-} ]]; then
+  if [[ -d ${gitmux_TMP_WORKSPACE:-} ]]; then
     # shellcheck disable=SC2086
     if [ ${KEEP_TMP_WORKSPACE:-false} = true ]; then
       # implement -k (keep) and check for it
-      errcho "You may navigate to ${REPOMAN_TMP_WORKSPACE} to complete the workflow manually (or, try again)."
+      errcho "You may navigate to ${gitmux_TMP_WORKSPACE} to complete the workflow manually (or, try again)."
     else
       errcho "Cleaning up."
-      rm -rf "${REPOMAN_TMP_WORKSPACE}"
-      errcho "Deleted repoman tmp workspace ${REPOMAN_TMP_WORKSPACE}"
+      rm -rf "${gitmux_TMP_WORKSPACE}"
+      errcho "Deleted gitmux tmp workspace ${gitmux_TMP_WORKSPACE}"
       echo "🛀"
     fi
   fi
@@ -94,7 +94,7 @@ cleanup() {
 
 # shellcheck disable=SC2120
 errcleanup() {
-  errcho "⛔️ Repoman execution failed."
+  errcho "⛔️ gitmux execution failed."
   if [ -n "${1:-}" ]; then
     errcho "⏩ Error at line ${1}."
   fi
@@ -118,11 +118,12 @@ OPTIND=1
 # Set defaults
 SOURCE_REPOSITORY="${SOURCE_REPOSITORY:-}"
 SUBDIRECTORY_FILTER="${SUBDIRECTORY_FILTER:-}"
-GIT_REF="${GIT_REF:-}"
+SOURCE_GIT_REF="${SOURCE_GIT_REF:-}"
 DESTINATION_PATH="${DESTINATION_PATH:-}"
 DESTINATION_REPOSITORY="${DESTINATION_REPOSITORY:-}"
 DESTINATION_BRANCH="${DESTINATION_BRANCH:-master}"
 SUBMIT_PR="${SUBMIT_PR:-false}"
+REV_LIST_FILES="${REV_LIST_FILES:-}"
 INTERACTIVE_REBASE="${INTERACTIVE_REBASE:-false}"
 CREATE_NEW_REPOSITORY="${CREATE_NEW_REPOSITORY:-false}"
 KEEP_TMP_WORKSPACE="${KEEP_TMP_WORKSPACE:-false}"
@@ -133,10 +134,11 @@ GITHUB_HOST="${GITHUB_HOST:-}"
 
 source_repository="${SOURCE_REPOSITORY}"
 subdirectory_filter="${SUBDIRECTORY_FILTER}"
-git_ref="${GIT_REF}"
+source_git_ref="${SOURCE_GIT_REF}"
 destination_path="${DESTINATION_PATH}"
 destination_repository="${DESTINATION_REPOSITORY}"
 destination_branch="${DESTINATION_BRANCH}"
+rev_list_files="${REV_LIST_FILES}"
 _verbose=0
 
 function stripslashes () {
@@ -153,7 +155,7 @@ function show_help()
 {
   # shellcheck disable=SC1111
   cat << EOF
-  Usage: ${0##*/} [-r SOURCE_REPOSITORY] [-d SUBDIRECTORY_FILTER] [-g GITREF] [-t DESTINATION_REPOSITORY] [-p DESTINATION_PATH] [-b DESTINATION_BRANCH] [-X REBASE_STRATEGY_OPTION | -o REBASE_OPTIONS] [-i] [-s] [-c] [-k] [-v] [-h]
+  Usage: ${0##*/} [-r SOURCE_REPOSITORY] [-d SUBDIRECTORY_FILTER] [-g GITREF] [-t DESTINATION_REPOSITORY] [-p DESTINATION_PATH] [-b DESTINATION_BRANCH] [-X REBASE_STRATEGY_OPTION | -o REBASE_OPTIONS] [-z GITHUB_TEAM -z ...] [-i] [-s] [-c] [-k] [-v] [-h]
   “The life of a repo man is always intense.”
   -r <repository>              Path/url to the [remote] source repository. Required.
   -t <destination_repository>  Path/url to the [remote] destination repository. Required.
@@ -161,11 +163,13 @@ function show_help()
   -g <gitref>                  Git ref for the [remote] source repository. (default: null, which just uses the HEAD of the default branch, probably 'master', after cloning.) Can be any value valid for \`git checkout <ref>\` e.g. a branch, commit, or tag.
   -p <destination_path>        Destination path for the filtered repository content ( default: '/' which places the repository content into the root of the destination repository. e.g. to place source repository's /app directory content into the /lib directory of your destination repository, supply -p lib )
   -b <destination_branch>      Destination (a.k.a. base) branch in destination repository against which, changes will be rebased. Further, if [-s] is supplied, the resulting content will be submitted with this destination branch as the target (base) for the pull request. (Default: master)
+  -l <rev-list options>        Options passed to git rev-list during \`git filter-branch\`. Can be used to specify individual files to be brought into the [new] repository. e.g. -l '--all -- file1.txt file2.txt' For more info see git's documentation for git filter-branch under the parameters for <rev-list options>…
   -o <rebase_options>          Options to supply to \`git rebase\`. If set and includes --interactive or -i, this script will drop you into the workspace to complete the workflow manually (Note: cannot use with -X)
   -X <option>                  Rebase strategy option, e.g. ours/patience. Defaults to 'theirs' (Note: cannot use with -o)
   -i                           Perform an interactive rebase. If you use this option you will need to push your resulting branch to the remote named 'destination' and submit a pull request manually.
   -s                           Submit a pull request to your destination. Requires \`hub\`. Only valid for non-local destination repositories. (default: off)
   -c                           Create the destination repository if it does not exist. Requires \`hub\`. (default: off)
+  -z                           Add this team to your destination repository. Use <org>/<team> notation e.g. engineering-org/firmware-team May be specified multiple times. Requires \`hub\`. Only valid for non-local destination repositories.
   -k                           Keep the tmp git workspace around instead of cleaning it up (useful for debugging). (default: off)
   -v                           Verbose ( default: off )
   -h                           Print help / usage
@@ -175,13 +179,15 @@ EOF
 # Rebase option related flags are mutually exclusive
 _rebase_option_flags=''
 
-while getopts "h?vr:d:g:t:p:b:o:X:sick" OPT; do
+while getopts "h?vr:d:g:t:p:z:b:l:o:X:sick" OPT; do
   case "$OPT" in
     r)  source_repository=$OPTARG
       ;;
     d)  subdirectory_filter="$(stripslashes "${OPTARG}")" # Is relative to the git repo, should not have leading slashes.
       ;;
-    g)  git_ref=$OPTARG
+    l)  rev_list_files=$OPTARG
+      ;;
+    g)  source_git_ref=$OPTARG
       ;;
     t)  destination_repository=$OPTARG
       ;;
@@ -191,9 +197,11 @@ while getopts "h?vr:d:g:t:p:b:o:X:sick" OPT; do
       ;;
     X) [ -n "${_rebase_option_flags}" ] && show_help && errxit "" "error: -${OPT} cannot be used with -o" || _rebase_option_flags='set' MERGE_STRATEGY_OPTION_FOR_REBASE=$OPTARG
       ;;
-    o) [ -n "${_rebase_option_flags}" ] && show_help && errxit "" "error: -${OPT} cannot be used with -X" || _rebase_option_flags='set' REBASE_OPTIONS=$OPTARG
+    z) [ ! -x "$(command -v hub)" ] && show_help && errxit "" "error: -${OPT} requires hub" || GITHUB_TEAMS+=("$OPTARG")
       ;;
     s)  SUBMIT_PR=true
+      ;;
+    o) [ -n "${_rebase_option_flags}" ] && show_help && errxit "" "error: -${OPT} cannot be used with -X" || _rebase_option_flags='set' REBASE_OPTIONS=$OPTARG
       ;;
     i)  INTERACTIVE_REBASE=true
       ;;
@@ -212,16 +220,34 @@ done
 shift $((OPTIND-1))
 [ "${1:-}" = "--" ] && shift
 
-# Check required variables/arguments.
+#
+# Argument validation.
+#
 if [[ -z "$source_repository" ]]; then
   errxit "Source repository url or path is required"
-elif [[ -z "$subdirectory_filter" ]]; then
-  errcho "No subdirectory filter specified! Entire source repository will be extracted."
 elif [[ -z "$destination_repository" ]]; then
   errxit "Destination repository url or path is required"
 elif [[ -z "${GITHUB_HOST:-}" ]]; then
   errxit "GITHUB_HOST must be set."
 fi
+
+if [[ -z "$subdirectory_filter" ]]; then
+  errcho "No subdirectory filter specified! Entire source repository will be extracted."
+fi
+
+if [ ${#GITHUB_TEAMS[@]} -gt 0 ]; then
+  log "validating github teams formats (length: ${#GITHUB_TEAMS[@]} ) --> ${GITHUB_TEAMS[*]}"
+  for orgteam in "${GITHUB_TEAMS[@]}"; do
+    if [[ ! "${orgteam}" =~ "/" ]]; then
+      errxit "team format should be <org>/<team>"
+    fi
+  done
+fi
+
+#
+# </Argument validation.>
+#
+
 
 # Export this for `hub`.
 export GITHUB_HOST=${GITHUB_HOST}
@@ -306,6 +332,9 @@ destination_project=$(echo "${destination_url}" | sed -E "${REPO_REGEX}"'/\6/')
 destination_owner=$(echo "${destination_url}" | sed -E "${REPO_REGEX}"'/\4/')
 destination_uri="${destination_owner}/${destination_project}"
 
+# This is for `hub`, which only interacts with the destination.
+export GITHUB_HOST="${destination_domain}"
+
 if [ "${source_domain}" != "${destination_domain}" ]; then
   # A safety check to prevent accidental open-sourcing of intellectual property :)
   errcho  "Source domain (${source_domain}) does not match destination domain (${destination_domain})."
@@ -320,7 +349,7 @@ fi
 log "source_repository         ==> ${source_repository}"
 log "source_url                ==> ${source_url}"
 log "subdirectory_filter       ==> ${subdirectory_filter}"
-log "git_ref                   ==> ${git_ref}"
+log "source_git_ref            ==> ${source_git_ref}"
 log "destination_path          ==> ${destination_path}"
 log "destination_repository    ==> ${destination_repository}"
 log "destination_url           ==> ${destination_url}"
@@ -334,12 +363,13 @@ log "DESTINATION PROJECT OWNER ==> ${destination_owner}"
 log "DESTINATION PROJECT NAME ==> ${destination_project}"
 log "DESTINATION PROJECT URI ==> ${destination_uri}"
 
-REPOMAN_TMP_WORKSPACE=$(mktemp -t 'repoman-XXXXX' -d || errxit "Failed to create tmpdir.")
-log "Working in tmpdir ${REPOMAN_TMP_WORKSPACE}"
-_pushd "${REPOMAN_TMP_WORKSPACE}"
+gitmux_TMP_WORKSPACE=$(mktemp -t 'gitmux-XXXXX' -d || errxit "Failed to create tmpdir.")
+log "Working in tmpdir ${gitmux_TMP_WORKSPACE}"
+_pushd "${gitmux_TMP_WORKSPACE}"
 _GITDIR="tmp-${source_owner}_${source_project}"
 git clone "${source_repository}" "${_GITDIR}"
 _pushd "${_GITDIR}"
+git fetch --tags origin
 _WORKSPACE=$(pwd)
 
 # The following is unnecessary when doing a full clone.
@@ -347,8 +377,9 @@ _WORKSPACE=$(pwd)
 #git fetch --update-shallow --shallow-since=1month --update-head-ok --progress origin master
 
 # If a non-default ref is specified, fetch it explicitly and perform a checkout.
-if [[ -n "$git_ref" ]]; then
-  git fetch origin "${git_ref}" && git checkout "origin/${git_ref}"
+if [[ -n "${source_git_ref}" ]]; then
+  log "A specific git ref was given; checking out ${source_git_ref}"
+  git fetch --tags origin "${source_git_ref}" && git checkout --no-guess "${source_git_ref}"
 fi
 
 GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
@@ -366,7 +397,7 @@ log "GIT_SHA ==> ${GIT_SHA}"
 # `git filter-branch` using --subdirectory-filter doesnt
 # keep the actual directory specified, *only its contents*.
 # So, lets create the directory structure we ultimately want
-# *in advance* which is chef/.
+# *in advance*.
 
 # If a destination path is specified, do some tricks.
 if [[ -n "$destination_path" ]] && ! [[ "${destination_path}" == '/' ]]; then
@@ -390,7 +421,7 @@ if [[ -n "$destination_path" ]] && ! [[ "${destination_path}" == '/' ]]; then
     # First create a random file in case the directory is empty
     # For some odd reason. (Delete afterward)
     _rname="$(openssl rand -hex 8).txt"
-    echo "Created by repoman. Serves two puposes, one of which is acting like a .gitkeep and the other has to do with shopt -s extglob. Delete me." > "${_rname}"
+    echo "Created by gitmux. Serves two puposes, one of which is acting like a .gitkeep and the other has to do with shopt -s extglob. Delete me." > "${_rname}"
     git add --force --intent-to-add "${_rname}"
     shopt -s extglob
     # Move everything except __tmp__ into __tmp__
@@ -422,12 +453,34 @@ else
   _subdirectory_filter_options=''
 fi
 
+# git filter-branch can take `git rev-list` options for
+# additional filtering control. For example, advanced
+# users can target specific files for their [new] repo.
+# <rev-list options>...
+
+log "rev-list options --> ${rev_list_files}"
 log "subdirectory filter options --> ${_subdirectory_filter_options}"
 # Might need --unshallow
 #git filter-branch --prune-empty ${_subdirectory_filter_options}
-git filter-branch ${_subdirectory_filter_options}
+log "git filter-branch --tag-name-filter cat ${_subdirectory_filter_options:-} [...] ${rev_list_files}"
+
+# WARNING: git-filter-branch has a glut of gotchas...
+# Yeah, we know.
+export FILTER_BRANCH_SQUELCH_WARNING=1
+if [ -n "${rev_list_files}" ]; then
+  log "Targeting paths/revisions: ${rev_list_files}"
+  git filter-branch --tag-name-filter cat ${_subdirectory_filter_options} \
+    --index-filter "
+    git read-tree --empty
+    git reset \$GIT_COMMIT -- ${rev_list_files}
+   " \
+   -- --all -- ${rev_list_files}
+else
+  git filter-branch --tag-name-filter cat ${_subdirectory_filter_options}
+fi
+
 log "git filter-branch completed."
-git status
+log "$(git status)"
 log "Adding 'destination' remote --> ${destination_repository}"
 git remote add destination "${destination_repository}"
 
@@ -453,7 +506,7 @@ if ! _repo_existence="$(git fetch destination 2>&1)"; then
     log "hub is creating your new repository now!"
     NEW_REPOSITORY_DESCRIPTION="New repository from ${source_url} (${subdirectory_filter:-/})"
     # hub create [-poc] [-d DESCRIPTION] [-h HOMEPAGE] [[ORGANIZATION/]NAME]
-    TMPHUBCREATEWORKDIR=$(mktemp -t 'repoman-hub-create-destination-XXXXXXXXXXXXX' -d || errxit "Failed to create tmpdir.")
+    TMPHUBCREATEWORKDIR=$(mktemp -t 'gitmux-hub-create-destination-XXXXXXXXXXXXX' -d || errxit "Failed to create tmpdir.")
     # Note: If you want to move the --orphan bits below, remove --bare from the next line.
     _pushd "${TMPHUBCREATEWORKDIR}" && git init --bare --quiet
     hub create -d "${NEW_REPOSITORY_DESCRIPTION}" "${destination_owner}/${destination_project}"
@@ -468,14 +521,14 @@ if ! _repo_existence="$(git fetch destination 2>&1)"; then
     # This will also help remind us where this repository came from.
     git status
     # A local 'master' branch probably already exists
-    git checkout --orphan "repoman-dest-${destination_branch}"
+    git checkout --orphan "gitmux-dest-${destination_branch}"
     # Unstage everything (from ${DESTINATION_PR_BRANCH_NAME})
     git rm -r --cached .
     git status
     log "Creating empty commit for its own sake"
-    git commit --message 'Hello: this repository was created by repoman.' --allow-empty
+    git commit --message 'Hello: this repository was created by gitmux.' --allow-empty
     # git push destination "${destination_branch}"
-    git push destination "repoman-dest-${destination_branch}:master"
+    git push destination "gitmux-dest-${destination_branch}:master"
     # Now go back to the build branch.
     log "Going back to build branch --> ${DESTINATION_PR_BRANCH_NAME}"
     git checkout --force "${DESTINATION_PR_BRANCH_NAME}"
@@ -505,74 +558,134 @@ fi
 #  - in this context, 'theirs' is the destination repo. if this script is being run 
 #    as a sync/update rather than an initial repo-ectomy, we _probably_ want 'theirs'.
 
+MAX_RETRIES=50
 perform_rebase () {
  log "Rebase options --> ' ${REBASE_OPTIONS} '"
  # shellcheck disable=SC2086
- if [[ $(echo " ${REBASE_OPTIONS} " | sed -E 's/.*(\ -i\ |\ --interactive\ ).*/INTERACTIVE/') == "INTERACTIVE" ]]; then
-   echo "Interactive rebase detected."
-   git rebase "${REBASE_OPTIONS}" "destination/${destination_branch}"
-   log "Rebase completed successfully."
-   echo "After rebasing, this might be useful: \`git push destination ${DESTINATION_PR_BRANCH_NAME}\`"
-   echo "Navigate to the temp workspace at ${_WORKSPACE} to complete the workflow."
-   echo "cd ${_WORKSPACE}"
- elif ! output="$(git rebase ${REBASE_OPTIONS} "destination/${destination_branch}" 2>&1)"; then
-   # I only undestood this block long enough to write it.
-   errcho "${output}"
-   if [[ "${output}" =~ "invalid upstream" ]]; then
-     errxit "Invalid upstream. Does '${destination_branch}' exist in '${destination_repository}'?"
-   fi
-   errcho "Rebase failed, trying to --continue..."
-   n=1
-   while [ $n -le 50 ] && ! output="$(git rebase --continue 2>&1)";do
-     errcho "_______________________________________________"
-     errcho "${output}"
-     if [[ "${output}" =~ "needs merge" ]]; then
-       echo "Renamed/unchanged files need merge, using \`git add --all\`"
-       export GIT_EDITOR=true
-       git add --all
-     elif [[ "${output}" =~ "If you wish to commit it anyway" ]]; then
-       echo "Committing anyway with \`git commit --allow-empty --no-edit\`"
-       git commit --allow-empty --no-edit
-     fi
-     errcho "[${n}] Trying to --continue again..."
-     (( n += 1 ))
-     git rebase --continue && break
-     errcho "_______________________________________________"
-   done
-   log "Pushing to branch ${DESTINATION_PR_BRANCH_NAME}"
-   git push --progress --atomic --verbose --force-with-lease destination "${DESTINATION_PR_BRANCH_NAME}"
- else
-   # rebase in elif condition succeeded
-   log "Rebase completed successfully."
-   log "Pushing to branch ${DESTINATION_PR_BRANCH_NAME}"
-   git push --progress --atomic --verbose --force-with-lease destination "${DESTINATION_PR_BRANCH_NAME}"
- fi
+  if [[ $(echo " ${REBASE_OPTIONS} " | sed -E 's/.*(\ -i\ |\ --interactive\ ).*/INTERACTIVE/') == "INTERACTIVE" ]]; then
+    echo "Interactive rebase detected."
+    git rebase "${REBASE_OPTIONS}" "destination/${destination_branch}"
+    log "Rebase completed successfully."
+    echo "After rebasing, this might be useful: \`git push destination ${DESTINATION_PR_BRANCH_NAME}\`"
+    echo "Navigate to the temp workspace at ${_WORKSPACE} to complete the workflow."
+    echo "cd ${_WORKSPACE}"
+  elif ! output="$(git rebase ${REBASE_OPTIONS} "destination/${destination_branch}" 2>&1)"; then
+    # I only undestood this block long enough to write it.
+    if [[ "${output}" =~ "invalid upstream" ]]; then
+      errcho "${output}"
+      errxit "Invalid upstream. Does '${destination_branch}' exist in '${destination_repository}'?"
+    elif [[ "${output}" =~ ^fatal ]]; then
+      errcho '📛 Something went wrong during rebase.'
+      errcho "${output}"
+      return 1
+    fi
+    errcho "${output}"
+    errcho "Rebase incomplete, trying to --continue..."
+    n=1
+    while (( n < MAX_RETRIES )) && ! output="$(git rebase --continue 2>&1)";do
+      errcho "_______________________________________________"
+      errcho "${output}"
+      if [[ "${output}" =~ "needs merge" ]]; then
+        echo "Renamed/unchanged files need merge, using \`git add --all\`"
+        export GIT_EDITOR=true
+        git add --all
+      elif [[ "${output}" =~ "If you wish to commit it anyway" ]]; then
+        echo "Committing anyway with \`git commit --allow-empty --no-edit\`"
+        git commit --allow-empty --no-edit
+      elif [[ "${output}" =~ ^fatal ]]; then
+        errcho '📛 Something went wrong during rebase.'
+        errcho "${output}"
+        return 1
+      fi
+      errcho "[${n}] Trying to --continue again..."
+      (( n += 1 ))
+      git rebase --continue && break
+      errcho "_______________________________________________"
+    done
+    if (( n > MAX_RETRIES )); then
+      errcho "Max retries exceeded on rebase. Aborting."
+      git rebase --abort
+      errcho "${output}"
+      return 1
+    fi
+
+    log "Pushing to branch ${DESTINATION_PR_BRANCH_NAME}"
+    git push --tags destination
+    git push --follow-tags --progress --atomic --verbose --force-with-lease destination "${DESTINATION_PR_BRANCH_NAME}"
+  else
+    # rebase in elif condition succeeded
+    log "Rebase completed successfully."
+    log "Pushing to branch ${DESTINATION_PR_BRANCH_NAME}"
+    git push --tags destination
+    git push --follow-tags --progress --atomic --verbose --force-with-lease destination "${DESTINATION_PR_BRANCH_NAME}"
+  fi
 }
 
+
 perform_rebase
+
+#
+# GitHub API functions
+#
+
+function get_team_id() {
+  local _org_name="${1}"
+  local _team_name="${2}"
+  # GET /orgs/:org/teams/:team_slug
+  hub api --method GET "orgs/${_org_name}/teams/${_team_name}" | jq --exit-status -r '.id'
+}
+
+function add_team_to_repository() {
+  local _team_id="${1}"
+  local _owner="${2}"
+  local _repository="${3}"
+  # choices: pull, push, admin
+  local _permission="${4:-admin}"
+  # PUT /teams/:team_id/repos/:owner/:repo
+  log "Adding ${_team_id} to ${_owner}/${_repository}"
+  echo "{\"permission\": \"${_permission}\"}" | hub api --input - --color=always --method PUT "teams/${_team_id}/repos/${_owner}/${_repository}"
+  echo "✅ Added ${_team_id} to ${_owner}/${_repository} with '${_permission}' permissions"
+}
+
+#
+# </GitHub API Functions>
+#
+
+if [ -x "$(command -v hub)" ] && [ ${#GITHUB_TEAMS[@]} -gt 0 ]; then
+  # shellcheck disable=SC2016
+  echo "\`hub\` is installed. Adding teams ( ${GITHUB_TEAMS[*]} ) to ${destination_repository}"
+  for orgteam in "${GITHUB_TEAMS[@]}"; do
+    _org=$(echo "${orgteam}" | sed -E 's/(.*)\/(.*)/\1/')
+    _team=$(echo "${orgteam}" | sed -E 's/(.*)\/(.*)/\2/')
+    team_id=$(get_team_id "${_org}" "${_team}")
+    log "Adding ${orgteam} ( ${team_id} ) to ${destination_owner}/${destination_project}"
+    add_team_to_repository "${team_id}" "${destination_owner}" "${destination_project}"
+  done
+fi
+
 
 echo "Now create a pull request from ${DESTINATION_PR_BRANCH_NAME} into ${destination_branch}"
 
 PR_DESCRIPTION=$(printf "%s\n" \
-  "Sync from ${source_uri} \`${GIT_BRANCH}\` revision \`${GIT_SHA}\`" \
+  "Sync from ${source_uri} \`${source_git_ref:-${GIT_BRANCH}}\` revision \`${GIT_SHA}\`" \
   "" \
   "# Hello" \
-  "This is an automated pull request." \
+  "This is an automated pull request created by \`gitmux\`." \
   "" \
   "## Source repository details" \
-  "Source repository: ${source_repository}" \
-  "Source url: ${source_url}" \
-  "Source git ref (if provided): \`${GIT_REF:-n/a}\`" \
-  "Source git branch: ${GIT_BRANCH} (\`${GIT_SHA}\`)" \
+  "Source repository: [\`${source_repository}\`](${source_repository})" \
+  "Source url: [\`${source_url}\`](${source_url})" \
+  "Source git ref (if provided): \`${source_git_ref:-n/a}\`" \
+  "Source git branch: \`${source_git_ref:-${GIT_BRANCH}}\` (\`${GIT_SHA}\`)" \
   "Directory within source repository (if provided, else entire repository): \`${subdirectory_filter:-/}\`" \
-  "Repository url: https://${GITHUB_HOST}/${source_owner}/${source_project}/tree/${GIT_SHA}/${SUBDIRECTORY_FILTER}" \
+  "Repository url: [\`https://${source_domain}/${source_owner}/${source_project}/tree/${GIT_SHA}/${SUBDIRECTORY_FILTER}\`](https://${source_domain}/${source_owner}/${source_project}/tree/${GIT_SHA}/${SUBDIRECTORY_FILTER})" \
   "" \
   "## Destination repository details" \
-  "Destination repository: ${destination_repository}" \
+  "Destination repository: [\`${destination_repository}\`](${destination_repository})" \
   "PR Branch at Destination (head): \`${DESTINATION_PR_BRANCH_NAME}\`" \
   "Destination branch (base): \`${DESTINATION_BRANCH}\`" \
-  "PR Branch URL: https://${GITHUB_HOST}/${destination_owner}/${destination_project}/tree/${DESTINATION_PR_BRANCH_NAME}/${DESTINATION_PATH:-}" \
-  "Destination url: ${destination_url}" \
+  "PR Branch URL: [\`https://${destination_domain}/${destination_owner}/${destination_project}/tree/${DESTINATION_PR_BRANCH_NAME}/${DESTINATION_PATH:-}\`](https://${destination_domain}/${destination_owner}/${destination_project}/tree/${DESTINATION_PR_BRANCH_NAME}/${DESTINATION_PATH:-})" \
+  "Destination url: [\`${destination_url}\`](${destination_url})" \
   "Destination path (if applicable, or identical in structure to source): \`${DESTINATION_PATH:-n/a}\`" \
   "" \
   "------------------------------" \
@@ -582,7 +695,7 @@ if [ -x "$(command -v hub)" ] && [ ${SUBMIT_PR} = true ]; then
   # shellcheck disable=SC2016
   echo '`hub` is installed. Submitting PR'
   hub pull-request --message "${PR_DESCRIPTION}" \
-    --labels sync \
+    --labels gitmux \
     --browse \
     --no-edit --base "${destination_uri}:${destination_branch}" \
     --head "${destination_uri}:${DESTINATION_PR_BRANCH_NAME}"
