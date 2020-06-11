@@ -1,9 +1,9 @@
 
-# repoman
+# gitmux
 
-The `repoman.sh` script is provided to help sync changes (**including commit history**) _across_ repositories. 
+The `gitmux.sh` script is provided to help sync changes (**including commit history**) _across_ repositories. 
 
-The script can be used to create brand new [destination] repositories from _any *or* all_ content within a source git repository. It can also be used to update repositories previously "forked" by repoman (or forked in a more traditional manner).
+The script can be used to create brand new [destination] repositories from _any *or* all_ content within a source git repository. It can also be used to update repositories previously "forked" by gitmux (or forked in a more traditional manner).
 
 ### Usage Notes
 
@@ -19,11 +19,11 @@ The script can be used to create brand new [destination] repositories from _any 
 
 * The script does not push updates to `master`, only to `update-from-${GIT_BRANCH}-${GIT_SHA}` where `GIT_BRANCH` is the source repository branch referenced (defaults to HEAD/master) and `GIT_SHA` is the equivalent commit hash for that branch. For this reason, you don't need to worry about this script modifying any branches except for the custom "feature branch" it creates for its own use on your remote.
 
-* Changes make it into your destination repository's specified target branch ([default](https://help.github.com/en/articles/setting-the-default-branch) or `master` branch if not otherwise specified) through an auditable pull-request mechanism, and **are not** pushed to that branch directly by repoman. If `-s` is not used or `hub` is not installed, you will need to merge the resulting changes from the repoman feature branch into your destination branch manually.
+* Changes make it into your destination repository's specified target branch ([default](https://help.github.com/en/articles/setting-the-default-branch) or `master` branch if not otherwise specified) through an auditable pull-request mechanism, and **are not** pushed to that branch directly by gitmux. If `-s` is not used or `hub` is not installed, you will need to merge the resulting changes from the gitmux feature branch into your destination branch manually.
  
-* The _new_, or destination/target repository must have at least one commit (cannot be an empty repository) if you provide the repository path/url instead of having repoman create it for you.
+* The _new_, or destination/target repository must have at least one commit (cannot be an empty repository) if you provide the repository path/url instead of having gitmux create it for you.
 
-### Repoman FAQ
+### gitmux FAQ
 
 **1) Why doesnt this script push to my destination branch automatically?**
 
@@ -47,5 +47,5 @@ The script can be used to create brand new [destination] repositories from _any 
    From there, you can complete the interactive rebase and push your
    changes to the remote named 'destination'. The distinction between
    remote names in the workspace is very imporant. To double-check, use
-   `git remote --verbose show` inside the repoman git workspace.
+   `git remote --verbose show` inside the gitmux git workspace.
 
