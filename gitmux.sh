@@ -332,6 +332,9 @@ destination_project=$(echo "${destination_url}" | sed -E "${REPO_REGEX}"'/\6/')
 destination_owner=$(echo "${destination_url}" | sed -E "${REPO_REGEX}"'/\4/')
 destination_uri="${destination_owner}/${destination_project}"
 
+# This is for `hub`, which only interacts with the destination.
+export GITHUB_HOST="${destination_domain}"
+
 if [ "${source_domain}" != "${destination_domain}" ]; then
   # A safety check to prevent accidental open-sourcing of intellectual property :)
   errcho  "Source domain (${source_domain}) does not match destination domain (${destination_domain})."
@@ -667,22 +670,22 @@ PR_DESCRIPTION=$(printf "%s\n" \
   "Sync from ${source_uri} \`${source_git_ref:-${GIT_BRANCH}}\` revision \`${GIT_SHA}\`" \
   "" \
   "# Hello" \
-  "This is an automated pull request." \
+  "This is an automated pull request created by \`gitmux\`." \
   "" \
   "## Source repository details" \
-  "Source repository: ${source_repository}" \
-  "Source url: ${source_url}" \
+  "Source repository: [\`${source_repository}\`](${source_repository})" \
+  "Source url: [\`${source_url}\`](${source_url})" \
   "Source git ref (if provided): \`${source_git_ref:-n/a}\`" \
-  "Source git branch: ${source_git_ref:-${GIT_BRANCH}} (\`${GIT_SHA}\`)" \
+  "Source git branch: \`${source_git_ref:-${GIT_BRANCH}}\` (\`${GIT_SHA}\`)" \
   "Directory within source repository (if provided, else entire repository): \`${subdirectory_filter:-/}\`" \
-  "Repository url: https://${GITHUB_HOST}/${source_owner}/${source_project}/tree/${GIT_SHA}/${SUBDIRECTORY_FILTER}" \
+  "Repository url: [\`https://${source_domain}/${source_owner}/${source_project}/tree/${GIT_SHA}/${SUBDIRECTORY_FILTER}\`](https://${source_domain}/${source_owner}/${source_project}/tree/${GIT_SHA}/${SUBDIRECTORY_FILTER})" \
   "" \
   "## Destination repository details" \
-  "Destination repository: ${destination_repository}" \
+  "Destination repository: [\`${destination_repository}\`](${destination_repository})" \
   "PR Branch at Destination (head): \`${DESTINATION_PR_BRANCH_NAME}\`" \
   "Destination branch (base): \`${DESTINATION_BRANCH}\`" \
-  "PR Branch URL: https://${GITHUB_HOST}/${destination_owner}/${destination_project}/tree/${DESTINATION_PR_BRANCH_NAME}/${DESTINATION_PATH:-}" \
-  "Destination url: ${destination_url}" \
+  "PR Branch URL: [\`https://${destination_domain}/${destination_owner}/${destination_project}/tree/${DESTINATION_PR_BRANCH_NAME}/${DESTINATION_PATH:-}\`](https://${destination_domain}/${destination_owner}/${destination_project}/tree/${DESTINATION_PR_BRANCH_NAME}/${DESTINATION_PATH:-})" \
+  "Destination url: [\`${destination_url}\`](${destination_url})" \
   "Destination path (if applicable, or identical in structure to source): \`${DESTINATION_PATH:-n/a}\`" \
   "" \
   "------------------------------" \
