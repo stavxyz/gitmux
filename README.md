@@ -5,6 +5,16 @@ The `gitmux.sh` script is provided to help sync changes (**including commit hist
 
 The script can be used to create brand new [destination] repositories from _any *or* all_ content within a source git repository. It can also be used to update repositories previously "forked" by gitmux (or forked in a more traditional manner).
 
+For assistance, email me `hi@samstav.xyz` or submit an issue here.
+
+### Who is this for?
+
+* Someone who wants to "fork" a subset of a larger repository into a new repository
+* Someone who wants to **update** a "fork" of a subset of a larger repository
+* Someone who previously "forked" (or copy/pasted) part of a larger repository and wants to do-it-over so that they get the commit history and tags
+* Someone who is quite well versed in git, and wants to explore the differences in the available rebase strategies (see help on the `-X` flag )
+* A robot that checks for updates of git repositories being mirrored, with the goal of submitting a pull-request to the downstream mirror with any updates available
+
 ### Usage Notes
 
 * The recommended usage includes `-s`, which submits a pull request to your target repository with the resulting content. Although this is recommended, it is not the default, since it requires [`hub`](https://hub.github.com/) to be installed.
