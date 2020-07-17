@@ -7,6 +7,8 @@ The `gitmux.sh` script is provided to help sync changes (**including commit hist
 _
 The script can be used to create brand new git repositories from _any_ (_**or** all_) content within a chosen source git repository. It can also be used to update repositories previously "forked" by gitmux (or those git repositories forked in a more traditional manner).
 
+You could also think of it as a tool for forking repositories, but with a twist: _you don't have to fork the entire repository_. Only the pieces/files you want.
+
 For assistance, email me `hi@samstav.xyz` or submit an issue here.
 
 ### Who is this for?
