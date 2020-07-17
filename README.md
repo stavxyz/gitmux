@@ -1,7 +1,7 @@
 
 # gitmux
 
-### If you've ever thought "I wish this were a separate repo", you've come to the right place.
+### If you've ever thought 💭 "I wish this were a separate repo", you've come to the right place.
 
 The `gitmux.sh` script is provided to help sync changes (**including commit history**) _across_ repositories. 
 
