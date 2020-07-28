@@ -15,6 +15,7 @@ For assistance, email me `hi@samstav.xyz` or submit an issue here.
 
 * Someone who wants to "fork" a subset of a larger repository into a new repository
 * Someone who wants to **update** a "fork" of a subset of a larger repository
+* Someone who wants to turn their github gist into a repository
 * Someone who previously "forked" (or copy/pasted) part of a larger repository and wants to do-it-over so that they get the commit history and tags
 * Someone who is quite well versed in git, and wants to explore the differences in the available rebase strategies (see help on the `-X` flag )
 * A robot that checks for updates of git repositories being mirrored, with the goal of submitting a pull-request to the downstream mirror with any updates available
