@@ -30,7 +30,7 @@ function log () {
 # Constants / Arguments
 # To override, user should export $GH_HOST before running this test script.
 export GH_HOST=${GH_HOST:-'github.com'}
-export GITHUB_OWNER=${GITHUB_OWNER:-stav}
+export GITHUB_OWNER=${GITHUB_OWNER:-}
 
 
 TMPTESTWORKDIR=$(mktemp -t 'gitmux-test-XXXX' -d || errxit "Failed to create tmpdir.")
