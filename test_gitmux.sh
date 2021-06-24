@@ -28,9 +28,9 @@ function log () {
 }
 
 # Constants / Arguments
-# To override, user should export $GITHUB_HOST before running this test script.
-export GITHUB_HOST=${GITHUB_HOST:-'github.com'}
-export GITHUB_OWNER=${GITHUB_OWNER:-samstav}
+# To override, user should export $GH_HOST before running this test script.
+export GH_HOST=${GH_HOST:-'github.com'}
+export GITHUB_OWNER=${GITHUB_OWNER:-stav}
 
 
 TMPTESTWORKDIR=$(mktemp -t 'gitmux-test-XXXX' -d || errxit "Failed to create tmpdir.")
@@ -43,7 +43,7 @@ cleanup() {
   rm -rf "${TMPTESTWORKDIR}"
   for r in "${repositoriesToDelete[@]}"; do
      echo "Deleting ${r}"
-     hub delete -y "${r}"
+     gh api --method DELETE repos/"${r}"
   done
   echo "🛀"
 }
@@ -78,27 +78,32 @@ createRepository() {
     errxit "Repository owner and project are required. Usage: \`createRepository <ownerName> <repositoryName>\`"
   fi
 
-  _hubcreateopts=''
+  _ghcreateopts=''
   case ${_visibility} in
-    public) : ;;
-    private) _hubcreateopts="--private" ;;
+    internal) _ghcreateopts="--internal" ;;
+    public) _ghcreateopts="--public" ;;
+    private) _ghcreateopts="--private" ;;
     *) errxit "Not a valid value for visibility (choose one of public/private)";;
   esac
 
-  ########## <HUB CREATE REPO> ################
-  # `hub create` must be run from inside a git repository. (weird)
-  log "hub is creating your new repository now!"
-  # hub create [-poc] [-d DESCRIPTION] [-h HOMEPAGE] [[ORGANIZATION/]NAME]
-  TMPHUBCREATEWORKDIR=$(mktemp -t 'gitmux-tests-XXXX' -d || errxit "Failed to create tmpdir.")
-  _pushd "${TMPHUBCREATEWORKDIR}" && git init --quiet
+  ########## <GH CREATE REPO> ################
+  # `gh repo create` must be run from inside a git repository. (weird)
+  # gh repo create [<name>] [flags]
+  TMPGHCREATEWORKDIR=$(mktemp -t 'gitmux-tests-XXXX' -d || errxit "Failed to create tmpdir.")
+  _pushd "${TMPGHCREATEWORKDIR}" && git init --quiet
   NEW_REPOSITORY_DESCRIPTION="Test repository for gitmux. If you find this lingering you may safely delete this repository."
-  hub create ${_hubcreateopts:-} --remote-name hello -d "${NEW_REPOSITORY_DESCRIPTION}" "${_owner}/${_project}"
+  log "gh-cli is creating your new repository now!"
+  gh repo create "${_owner}/${_project}" ${_ghcreateopts:-} --confirm --description "${NEW_REPOSITORY_DESCRIPTION}"
+  log "renaming origin to hello"
+  git remote rename origin hello
   git commit --message 'Hello: this repository was created by gitmux.' --allow-empty
+  git remote --verbose show
+  log "pushing change to hello"
   git push hello "master:master"
   _popd
-  log "cleaning up hub-create workdir"
-  rm -rf "${TMPHUBCREATEWORKDIR}"
-  ########## </HUB CREATE REPO> ################
+  log "cleaning up gh-create-repo workdir"
+  rm -rf "${TMPGHCREATEWORKDIR}"
+  ########## </GH CREATE REPO> ################
 }
 
 
@@ -111,7 +116,7 @@ _pushd "${SOURCE_REPOSITORY_NAME}" && SOURCE_REPOSITORY_PATH="$(pwd)"
 git init
 createRepository "${GITHUB_OWNER}" "${SOURCE_REPOSITORY_NAME}"
 repositoriesToDelete+=("${GITHUB_OWNER}/${SOURCE_REPOSITORY_NAME}")
-git remote add source_remote_name "git@${GITHUB_HOST}:${GITHUB_OWNER}/${SOURCE_REPOSITORY_NAME}.git"
+git remote add source_remote_name "git@${GH_HOST}:${GITHUB_OWNER}/${SOURCE_REPOSITORY_NAME}.git"
 git fetch source_remote_name
 git checkout -b something-new --track source_remote_name/master
 echo "Hello World" > "hello.txt"
@@ -138,7 +143,7 @@ DESTINATION_REPOSITORY_PATH="$(pwd)"
 git init
 createRepository "${GITHUB_OWNER}" "${DESTINATION_REPOSITORY_NAME}"
 repositoriesToDelete+=("${GITHUB_OWNER}/${DESTINATION_REPOSITORY_NAME}")
-git remote add destination_remote_name "git@${GITHUB_HOST}:${GITHUB_OWNER}/${DESTINATION_REPOSITORY_NAME}.git"
+git remote add destination_remote_name "git@${GH_HOST}:${GITHUB_OWNER}/${DESTINATION_REPOSITORY_NAME}.git"
 git fetch --update-head-ok destination_remote_name
 # This actually creates a local 'master' tracking branch.
 git checkout master
@@ -212,7 +217,7 @@ echo
 test_defaults_destination_dne_yet() {
   NEW_REPO_URI="${GITHUB_OWNER}/gitmux_test_destination_$(rands 8)"
   repositoriesToDelete+=("${NEW_REPO_URI}")
-  NEW_REPO_NO_UPSTREAM_YET="git@${GITHUB_HOST}:${NEW_REPO_URI}.git"
+  NEW_REPO_NO_UPSTREAM_YET="git@${GH_HOST}:${NEW_REPO_URI}.git"
   ./gitmux.sh -v -c -r "${SOURCE_REPOSITORY_PATH}" -t "${NEW_REPO_NO_UPSTREAM_YET}"
   _pushd "${DESTINATION_REPOSITORY_PATH}"
   git checkout "update-from-something-new-${_sha}-rebase-strategy-ours"
@@ -242,7 +247,7 @@ echo
 test_defaults_add_orgteam() {
   NEW_REPO_PROJECT_NAME="gitmux_test_destination_$(rands 8)"
   repositoriesToDelete+=("${GITHUB_OWNER}/${NEW_REPO_PROJECT_NAME}")
-  NEW_REPO_NO_UPSTREAM_YET="git@${GITHUB_HOST}:${GITHUB_OWNER}/${NEW_REPO_PROJECT_NAME}.git"
+  NEW_REPO_NO_UPSTREAM_YET="git@${GH_HOST}:${GITHUB_OWNER}/${NEW_REPO_PROJECT_NAME}.git"
   ./gitmux.sh -v -c -r "${SOURCE_REPOSITORY_PATH}" -t "${NEW_REPO_NO_UPSTREAM_YET}" -z infraconfig/infracore
   log "Now cloning repository which should have been created on GitHub by gitmux."
   git clone "${NEW_REPO_NO_UPSTREAM_YET}"
@@ -276,7 +281,7 @@ echo
 test_defaults_destination_dne_yet_only_wat() {
   NEW_REPO_PROJECT_NAME="gitmux_test_destination_$(rands 8)"
   repositoriesToDelete+=("${GITHUB_OWNER}/${NEW_REPO_PROJECT_NAME}")
-  NEW_REPO_NO_UPSTREAM_YET="git@${GITHUB_HOST}:${GITHUB_OWNER}/${NEW_REPO_PROJECT_NAME}.git"
+  NEW_REPO_NO_UPSTREAM_YET="git@${GH_HOST}:${GITHUB_OWNER}/${NEW_REPO_PROJECT_NAME}.git"
   ./gitmux.sh -v -c -r "${SOURCE_REPOSITORY_PATH}" -t "${NEW_REPO_NO_UPSTREAM_YET}" -l "wat.md"
   log "Now cloning repository which should have been created on GitHub by gitmux."
   git clone "${NEW_REPO_NO_UPSTREAM_YET}"
@@ -303,7 +308,7 @@ test_defaults_destination_dne_yet_only_wat() {
 test_defaults_destination_dne_yet_only_toto() {
   NEW_REPO_PROJECT_NAME="gitmux_test_destination_$(rands 8)"
   repositoriesToDelete+=("${GITHUB_OWNER}/${NEW_REPO_PROJECT_NAME}")
-  NEW_REPO_NO_UPSTREAM_YET="git@${GITHUB_HOST}:${GITHUB_OWNER}/${NEW_REPO_PROJECT_NAME}.git"
+  NEW_REPO_NO_UPSTREAM_YET="git@${GH_HOST}:${GITHUB_OWNER}/${NEW_REPO_PROJECT_NAME}.git"
   ./gitmux.sh -v -c -r "${SOURCE_REPOSITORY_PATH}" -t "${NEW_REPO_NO_UPSTREAM_YET}" -l "toto"
   log "Now cloning repository which should have been created on GitHub by gitmux."
   git clone "${NEW_REPO_NO_UPSTREAM_YET}"
