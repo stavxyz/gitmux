@@ -22,11 +22,14 @@
 # with those updates which occurred in the interim.
 #
 # If -c is used, the destination repository will be created if it
-# does not yet exists. Requires \`hub\` GitHub CLI.
+# does not yet exists. Requires \`gh\` GitHub CLI.
+#
+# https://cli.github.com
 #
 # If -s is used, the pull request will be automatically submitted
-# to your destination branch. Requires \`hub\` GitHub CLI.
+# to your destination branch. Requires \`gh\` GitHub CLI.
 #
+# https://cli.github.com
 #
 # FAQ
 #
@@ -131,7 +134,7 @@ KEEP_TMP_WORKSPACE="${KEEP_TMP_WORKSPACE:-false}"
 # Don't default these rebase options *yet*
 MERGE_STRATEGY_OPTION_FOR_REBASE="${MERGE_STRATEGY_OPTION_FOR_REBASE:-ours}"
 REBASE_OPTIONS="${REBASE_OPTIONS:-}"
-GITHUB_HOST="${GITHUB_HOST:-}"
+GH_HOST="${GH_HOST:-}"
 GITHUB_TEAMS=()
 
 source_repository="${SOURCE_REPOSITORY}"
@@ -169,9 +172,9 @@ function show_help()
   -o <rebase_options>          Options to supply to \`git rebase\`. If set and includes --interactive or -i, this script will drop you into the workspace to complete the workflow manually (Note: cannot use with -X)
   -X <option>                  Rebase strategy option, e.g. ours/patience. Defaults to 'ours' (Note: cannot use with -o)
   -i                           Perform an interactive rebase. If you use this option you will need to push your resulting branch to the remote named 'destination' and submit a pull request manually.
-  -s                           Submit a pull request to your destination. Requires \`hub\`. Only valid for non-local destination repositories. (default: off)
-  -c                           Create the destination repository if it does not exist. Requires \`hub\`. (default: off)
-  -z                           Add this team to your destination repository. Use <org>/<team> notation e.g. engineering-org/firmware-team May be specified multiple times. Requires \`hub\`. Only valid for non-local destination repositories.
+  -s                           Submit a pull request to your destination. Requires \`gh\`. Only valid for non-local destination repositories. (default: off)
+  -c                           Create the destination repository if it does not exist. Requires \`gh\`. (default: off)
+  -z                           Add this team to your destination repository. Use <org>/<team> notation e.g. engineering-org/firmware-team May be specified multiple times. Requires \`gh\`. Only valid for non-local destination repositories.
   -k                           Keep the tmp git workspace around instead of cleaning it up (useful for debugging). (default: off)
   -v                           Verbose ( default: off )
   -h                           Print help / usage
@@ -199,7 +202,7 @@ while getopts "h?vr:d:g:t:p:z:b:l:o:X:sick" OPT; do
       ;;
     X) [ -n "${_rebase_option_flags}" ] && show_help && errxit "" "error: -${OPT} cannot be used with -o" || _rebase_option_flags='set' MERGE_STRATEGY_OPTION_FOR_REBASE=$OPTARG
       ;;
-    z) [ ! -x "$(command -v hub)" ] && show_help && errxit "" "error: -${OPT} requires hub" || GITHUB_TEAMS+=("$OPTARG")
+    z) [ ! -x "$(command -v gh)" ] && show_help && errxit "" "error: -${OPT} requires gh-cli" || GITHUB_TEAMS+=("$OPTARG")
       ;;
     s)  SUBMIT_PR=true
       ;;
@@ -229,8 +232,8 @@ if [[ -z "$source_repository" ]]; then
   errxit "Source repository url or path is required"
 elif [[ -z "$destination_repository" ]]; then
   errxit "Destination repository url or path is required"
-elif [[ -z "${GITHUB_HOST:-}" ]]; then
-  errxit "GITHUB_HOST must be set."
+elif [[ -z "${GH_HOST:-}" ]]; then
+  errxit "GH_HOST must be set."
 fi
 
 if [[ -z "$subdirectory_filter" ]]; then
@@ -251,8 +254,8 @@ fi
 #
 
 
-# Export this for `hub`.
-export GITHUB_HOST=${GITHUB_HOST}
+# Export this for `gh`.
+export GH_HOST=${GH_HOST}
 
 _append_to_pr_branch_name=''
 if [[ -z "${REBASE_OPTIONS}" ]]; then
@@ -334,8 +337,8 @@ destination_project=$(echo "${destination_url}" | sed -E "${REPO_REGEX}"'/\6/')
 destination_owner=$(echo "${destination_url}" | sed -E "${REPO_REGEX}"'/\4/')
 destination_uri="${destination_owner}/${destination_project}"
 
-# This is for `hub`, which only interacts with the destination.
-export GITHUB_HOST="${destination_domain}"
+# This is for `gh`, which only interacts with the destination.
+export GH_HOST="${destination_domain}"
 
 if [ "${source_domain}" != "${destination_domain}" ]; then
   # A safety check to prevent accidental open-sourcing of intellectual property :)
@@ -503,19 +506,20 @@ if ! _repo_existence="$(git fetch destination 2>&1)"; then
   log "Destination repository (${destination_repository}) doesn't exist. If -c supplied, create it"
   if [ ${CREATE_NEW_REPOSITORY} = true ] && [[ "${_repo_existence}" =~ "Repository not found" ]]; then
 
-    ########## <HUB CREATE REPO> ################
-    # `hub create` must be run from inside a git repository. (weird)
-    log "hub is creating your new repository now!"
+    ########## <GH CREATE REPO> ################
+    # `gh repo create` runs from inside a git repository. (weird)
+    log "gh is creating your new repository now!"
     NEW_REPOSITORY_DESCRIPTION="New repository from ${source_url} (${subdirectory_filter:-/})"
-    # hub create [-poc] [-d DESCRIPTION] [-h HOMEPAGE] [[ORGANIZATION/]NAME]
-    TMPHUBCREATEWORKDIR=$(mktemp -t 'gitmux-hub-create-destination-XXXXXXXXXXXXX' -d || errxit "Failed to create tmpdir.")
+    # gh repo create [<name>] [flags]
+    TMPGHCREATEWORKDIR=$(mktemp -t 'gitmux-gh-create-destination-XXXXXXXXXXXXX' -d || errxit "Failed to create tmpdir.")
     # Note: If you want to move the --orphan bits below, remove --bare from the next line.
-    _pushd "${TMPHUBCREATEWORKDIR}" && git init --bare --quiet
-    hub create -d "${NEW_REPOSITORY_DESCRIPTION}" "${destination_owner}/${destination_project}"
+    _pushd "${TMPGHCREATEWORKDIR}" && git init --bare --quiet
+    # TODO: Make --private possible
+    gh repo create "${destination_owner}/${destination_project}" --confirm --public --description "${NEW_REPOSITORY_DESCRIPTION}"
     _popd
-    log "cleaning up hub-create workdir"
-    rm -rf "${TMPHUBCREATEWORKDIR}"
-    ########## </HUB CREATE REPO> ################
+    log "cleaning up gh-create workdir"
+    rm -rf "${TMPGHCREATEWORKDIR}"
+    ########## </GH CREATE REPO> ################
 
     log "Attempting (again) to fetch remote 'destination' --> ${destination_repository}"
     git fetch destination
@@ -562,6 +566,7 @@ fi
 
 MAX_RETRIES=50
 perform_rebase () {
+ git config --worktree merge.renameLimit 999999999
  log "Rebase options --> ' ${REBASE_OPTIONS} '"
  # shellcheck disable=SC2086
   if [[ $(echo " ${REBASE_OPTIONS} " | sed -E 's/.*(\ -i\ |\ --interactive\ ).*/INTERACTIVE/') == "INTERACTIVE" ]]; then
@@ -634,7 +639,7 @@ function get_team_id() {
   local _org_name="${1}"
   local _team_name="${2}"
   # GET /orgs/:org/teams/:team_slug
-  hub api --method GET "orgs/${_org_name}/teams/${_team_name}" | jq --exit-status -r '.id'
+  gh api "orgs/${_org_name}/teams/${_team_name}" --method GET | jq --exit-status -r '.id'
 }
 
 function add_team_to_repository() {
@@ -645,7 +650,7 @@ function add_team_to_repository() {
   local _permission="${4:-admin}"
   # PUT /teams/:team_id/repos/:owner/:repo
   log "Adding ${_team_id} to ${_owner}/${_repository}"
-  echo "{\"permission\": \"${_permission}\"}" | hub api --input - --color=always --method PUT "teams/${_team_id}/repos/${_owner}/${_repository}"
+  echo "{\"permission\": \"${_permission}\"}" | gh api "teams/${_team_id}/repos/${_owner}/${_repository}" --input - --method PUT
   echo "✅ Added ${_team_id} to ${_owner}/${_repository} with '${_permission}' permissions"
 }
 
@@ -653,9 +658,9 @@ function add_team_to_repository() {
 # </GitHub API Functions>
 #
 
-if [ -x "$(command -v hub)" ] && [ ${#GITHUB_TEAMS[@]} -gt 0 ]; then
+if [ -x "$(command -v gh)" ] && [ ${#GITHUB_TEAMS[@]} -gt 0 ]; then
   # shellcheck disable=SC2016
-  echo "\`hub\` is installed. Adding teams ( ${GITHUB_TEAMS[*]} ) to ${destination_repository}"
+  echo "\`gh\` is installed. Adding teams ( ${GITHUB_TEAMS[*]} ) to ${destination_repository}"
   for orgteam in "${GITHUB_TEAMS[@]}"; do
     _org=$(echo "${orgteam}" | sed -E 's/(.*)\/(.*)/\1/')
     _team=$(echo "${orgteam}" | sed -E 's/(.*)\/(.*)/\2/')
@@ -693,13 +698,13 @@ PR_DESCRIPTION=$(printf "%s\n" \
   "------------------------------" \
 )
 
-if [ -x "$(command -v hub)" ] && [ ${SUBMIT_PR} = true ]; then
+if [ -x "$(command -v gh)" ] && [ ${SUBMIT_PR} = true ]; then
   # shellcheck disable=SC2016
-  echo '`hub` is installed. Submitting PR'
-  hub pull-request --message "${PR_DESCRIPTION}" \
-    --labels gitmux \
-    --browse \
-    --no-edit --base "${destination_uri}:${destination_branch}" \
+  echo '`gh` is installed. Submitting PR'
+  gh pr create --body "${PR_DESCRIPTION}" \
+    --assign @me \
+    --label gitmux \
+    --base "${destination_uri}:${destination_branch}" \
     --head "${destination_uri}:${DESTINATION_PR_BRANCH_NAME}"
 else
   errcho "Please manually submit PR for branch ${DESTINATION_PR_BRANCH_NAME} to ${destination_repository}"
