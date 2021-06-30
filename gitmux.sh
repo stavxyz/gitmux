@@ -708,7 +708,7 @@ if [ -x "$(command -v gh)" ] && [ ${SUBMIT_PR} = true ]; then
   # shellcheck disable=SC2016
   echo '`gh` is installed. Submitting PR'
   gh pr create --body "${PR_DESCRIPTION}" \
-    --assign @me \
+    --assignee @me \
     --label gitmux \
     --base "${destination_uri}:${destination_branch}" \
     --head "${destination_uri}:${DESTINATION_PR_BRANCH_NAME}"
