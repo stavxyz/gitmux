@@ -374,7 +374,7 @@ _pushd "${gitmux_TMP_WORKSPACE}"
 _GITDIR="tmp-${source_owner}_${source_project}"
 git clone "${source_repository}" "${_GITDIR}"
 _pushd "${_GITDIR}"
-git fetch --tags origin
+git fetch --all --tags
 _WORKSPACE=$(pwd)
 
 # The following is unnecessary when doing a full clone.
@@ -384,7 +384,13 @@ _WORKSPACE=$(pwd)
 # If a non-default ref is specified, fetch it explicitly and perform a checkout.
 if [[ -n "${source_git_ref}" ]]; then
   log "A specific git ref was given; checking out ${source_git_ref}"
-  git fetch --tags origin "${source_git_ref}" && git checkout --no-guess "${source_git_ref}"
+  for _remote in $(git remote show); do
+    log "Fetching ${source_git_ref} from ${_remote}"
+    log "Running \'git fetch --verbose --tags --progress "${_remote}" "${source_git_ref}"\' in $(pwd)"
+    git fetch --verbose --tags --progress "${_remote}" "${source_git_ref}"
+  done
+  log "Checking out ${source_git_ref}"
+  git checkout ${source_git_ref}
 fi
 
 GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
