@@ -390,7 +390,7 @@ if [[ -n "${source_git_ref}" ]]; then
     git fetch --verbose --tags --progress "${_remote}" "${source_git_ref}"
   done
   log "Checking out ${source_git_ref}"
-  git checkout ${source_git_ref}
+  git checkout --guess ${source_git_ref}
 fi
 
 GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
