@@ -80,6 +80,16 @@ _popd () {
     command popd > /dev/null
 }
 
+_realpath () {
+    if [ -x "$(command -v realpath)" ]; then
+      realpath $@
+      return $?
+    else
+      readlink -f $@
+      return $?
+    fi
+}
+
 cleanup() {
   if [[ -d ${gitmux_TMP_WORKSPACE:-} ]]; then
     # shellcheck disable=SC2086
