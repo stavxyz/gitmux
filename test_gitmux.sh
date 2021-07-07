@@ -44,8 +44,7 @@ _tree_func () {
 export GH_HOST=${GH_HOST:-'github.com'}
 export GITHUB_OWNER=${GITHUB_OWNER:-}
 
-
-TMPTESTWORKDIR=$(mktemp -t 'gitmux-test-XXXX' -d || errxit "Failed to create tmpdir.")
+TMPTESTWORKDIR=$(mktemp -t 'gitmux-test-XXXXXX' -d || errxit "Failed to create tmpdir.")
 echo "Working in tmpdir ${TMPTESTWORKDIR}"
 _pushd "${TMPTESTWORKDIR}"
 
@@ -77,9 +76,8 @@ errcleanup() {
 trap 'errcleanup ${LINENO} ${FUNCNAME:-}' ERR
 
 rands() {
-  # Usage: rands <len>
-  # defaults to 8 random characters
-  openssl rand -hex "${1:-8}"
+  # Usage: rands
+  echo $RANDOM$RANDOM | tr '0-9' '[:lower:]'
 }
 
 createRepository() {
@@ -101,8 +99,8 @@ createRepository() {
   ########## <GH CREATE REPO> ################
   # `gh repo create` must be run from inside a git repository. (weird)
   # gh repo create [<name>] [flags]
-  TMPGHCREATEWORKDIR=$(mktemp -t 'gitmux-tests-XXXX' -d || errxit "Failed to create tmpdir.")
-  _pushd "${TMPGHCREATEWORKDIR}" && git init --quiet
+  TMPGHCREATEWORKDIR=$(mktemp -t 'gitmux-tests-XXXXXX' -d || errxit "Failed to create tmpdir.")
+  _pushd "${TMPGHCREATEWORKDIR}"
   NEW_REPOSITORY_DESCRIPTION="Test repository for gitmux. If you find this lingering you may safely delete this repository."
   log "gh-cli is creating your new repository now!"
   gh repo create "${_owner}/${_project}" ${_ghcreateopts:-} --confirm --description "${NEW_REPOSITORY_DESCRIPTION}"
@@ -122,7 +120,7 @@ createRepository() {
 #####################################
 #### Setup source git repository.
 #####################################
-SOURCE_REPOSITORY_NAME="gitmux_test_source_$(rands 8)"
+SOURCE_REPOSITORY_NAME="gitmux_test_source_$(rands)"
 mkdir -p "${SOURCE_REPOSITORY_NAME}"
 _pushd "${SOURCE_REPOSITORY_NAME}" && SOURCE_REPOSITORY_PATH="$(pwd)"
 git init
@@ -257,7 +255,7 @@ echo
 ##########################################
 
 test_defaults_add_orgteam() {
-  NEW_REPO_PROJECT_NAME="gitmux_test_destination_$(rands 8)"
+  NEW_REPO_PROJECT_NAME="gitmux_test_destination_$(rands)"
   repositoriesToDelete+=("${GITHUB_OWNER}/${NEW_REPO_PROJECT_NAME}")
   NEW_REPO_NO_UPSTREAM_YET="git@${GH_HOST}:${GITHUB_OWNER}/${NEW_REPO_PROJECT_NAME}.git"
   ./gitmux.sh -v -c -r "${SOURCE_REPOSITORY_PATH}" -t "${NEW_REPO_NO_UPSTREAM_YET}" -z infraconfig/infracore
@@ -291,7 +289,7 @@ echo
 ##########################################
 
 test_defaults_destination_dne_yet_only_wat() {
-  NEW_REPO_PROJECT_NAME="gitmux_test_destination_$(rands 8)"
+  NEW_REPO_PROJECT_NAME="gitmux_test_destination_$(rands)"
   repositoriesToDelete+=("${GITHUB_OWNER}/${NEW_REPO_PROJECT_NAME}")
   NEW_REPO_NO_UPSTREAM_YET="git@${GH_HOST}:${GITHUB_OWNER}/${NEW_REPO_PROJECT_NAME}.git"
   ./gitmux.sh -v -c -r "${SOURCE_REPOSITORY_PATH}" -t "${NEW_REPO_NO_UPSTREAM_YET}" -l "wat.md"
@@ -318,7 +316,7 @@ test_defaults_destination_dne_yet_only_wat() {
 }
 
 test_defaults_destination_dne_yet_only_toto() {
-  NEW_REPO_PROJECT_NAME="gitmux_test_destination_$(rands 8)"
+  NEW_REPO_PROJECT_NAME="gitmux_test_destination_$(rands)"
   repositoriesToDelete+=("${GITHUB_OWNER}/${NEW_REPO_PROJECT_NAME}")
   NEW_REPO_NO_UPSTREAM_YET="git@${GH_HOST}:${GITHUB_OWNER}/${NEW_REPO_PROJECT_NAME}.git"
   ./gitmux.sh -v -c -r "${SOURCE_REPOSITORY_PATH}" -t "${NEW_REPO_NO_UPSTREAM_YET}" -l "toto"
@@ -341,7 +339,7 @@ test_defaults_destination_dne_yet_only_toto() {
       [ "${output}" == "TUTU" ] && \
       output=$(cat toto/tata.txt) && \
       [ "${output}" == "TATA" ] && \
-      _tree=$(tree); then
+      _tree=$(_tree_func); then
     echo "${_tree}" && echo "✅ Success"
     # reset
     git branches
