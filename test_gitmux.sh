@@ -27,6 +27,18 @@ function log () {
   printf "%s\n" "$@"
 }
 
+_tree_func () {
+    if [ -x "$(command -v tree)" ]; then
+      tree
+      return $?
+    else
+      find . -print | sort | sed 's;[^/]*/;|---;g;s;---|; |;g'
+      return $?
+    fi
+}
+
+
+
 # Constants / Arguments
 # To override, user should export $GH_HOST before running this test script.
 export GH_HOST=${GH_HOST:-'github.com'}
