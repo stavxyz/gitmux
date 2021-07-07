@@ -134,7 +134,7 @@ SUBDIRECTORY_FILTER="${SUBDIRECTORY_FILTER:-}"
 SOURCE_GIT_REF="${SOURCE_GIT_REF:-}"
 DESTINATION_PATH="${DESTINATION_PATH:-}"
 DESTINATION_REPOSITORY="${DESTINATION_REPOSITORY:-}"
-DESTINATION_BRANCH="${DESTINATION_BRANCH:-master}"
+DESTINATION_BRANCH="${DESTINATION_BRANCH:-trunk}"
 SUBMIT_PR="${SUBMIT_PR:-false}"
 REV_LIST_FILES="${REV_LIST_FILES:-}"
 INTERACTIVE_REBASE="${INTERACTIVE_REBASE:-false}"
@@ -175,9 +175,9 @@ function show_help()
   -r <repository>              Path/url to the [remote] source repository. Required.
   -t <destination_repository>  Path/url to the [remote] destination repository. Required.
   -d <sub/directory>           Directory within source repository to extract. This value is supplied to \`git filter-branch\` as --subdirectory-filter. (default: '/' which is effectively a fork of the entire repo.) Supply a value for -d to extract only a piece/subdirectory of your source repository.
-  -g <gitref>                  Git ref for the [remote] source repository. (default: null, which just uses the HEAD of the default branch, probably 'master', after cloning.) Can be any value valid for \`git checkout <ref>\` e.g. a branch, commit, or tag.
+  -g <gitref>                  Git ref for the [remote] source repository. (default: null, which just uses the HEAD of the default branch, probably 'trunk (or master)', after cloning.) Can be any value valid for \`git checkout <ref>\` e.g. a branch, commit, or tag.
   -p <destination_path>        Destination path for the filtered repository content ( default: '/' which places the repository content into the root of the destination repository. e.g. to place source repository's /app directory content into the /lib directory of your destination repository, supply -p lib )
-  -b <destination_branch>      Destination (a.k.a. base) branch in destination repository against which, changes will be rebased. Further, if [-s] is supplied, the resulting content will be submitted with this destination branch as the target (base) for the pull request. (Default: master)
+  -b <destination_branch>      Destination (a.k.a. base) branch in destination repository against which, changes will be rebased. Further, if [-s] is supplied, the resulting content will be submitted with this destination branch as the target (base) for the pull request. (Default: trunk)
   -l <rev-list options>        Options passed to git rev-list during \`git filter-branch\`. Can be used to specify individual files to be brought into the [new] repository. e.g. -l '--all -- file1.txt file2.txt' For more info see git's documentation for git filter-branch under the parameters for <rev-list options>…
   -o <rebase_options>          Options to supply to \`git rebase\`. If set and includes --interactive or -i, this script will drop you into the workspace to complete the workflow manually (Note: cannot use with -X)
   -X <option>                  Rebase strategy option, e.g. ours/patience. Defaults to 'ours' (Note: cannot use with -o)
@@ -389,7 +389,7 @@ _WORKSPACE=$(pwd)
 
 # The following is unnecessary when doing a full clone.
 # Without a full clone, this procedure just doesnt work quite right.
-#git fetch --update-shallow --shallow-since=1month --update-head-ok --progress origin master
+#git fetch --update-shallow --shallow-since=1month --update-head-ok --progress origin trunk
 
 # If a non-default ref is specified, fetch it explicitly and perform a checkout.
 if [[ -n "${source_git_ref}" ]]; then
@@ -542,15 +542,17 @@ if ! _repo_existence="$(git fetch destination 2>&1)"; then
     # Our brand new repo destination branch needs at least one commit (to be the base branch of a PR).
     # This will also help remind us where this repository came from.
     git status
-    # A local 'master' branch probably already exists
-    git checkout --orphan "gitmux-dest-${destination_branch}"
+    # A local 'trunk' branch probably already exists
+    git checkout -b "gitmux-dest-${destination_branch}" destination/trunk
+    git pull destination trunk
     # Unstage everything (from ${DESTINATION_PR_BRANCH_NAME})
     git rm -r --cached .
     git status
     log "Creating empty commit for its own sake"
     git commit --message 'Hello: this repository was created by gitmux.' --allow-empty
     # git push destination "${destination_branch}"
-    git push destination "gitmux-dest-${destination_branch}:master"
+    pwd
+    git push destination "gitmux-dest-${destination_branch}:trunk"
     # Now go back to the build branch.
     log "Going back to build branch --> ${DESTINATION_PR_BRANCH_NAME}"
     git checkout --force "${DESTINATION_PR_BRANCH_NAME}"
