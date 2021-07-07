@@ -526,15 +526,17 @@ if ! _repo_existence="$(git fetch destination 2>&1)"; then
 
     ########## <GH CREATE REPO> ################
     # `gh repo create` runs from inside a git repository. (weird)
-    log "gh is creating your new repository now!"
+    log "gh is creating your new repository now! ( ${destination_owner}/${destination_project} )"
     NEW_REPOSITORY_DESCRIPTION="New repository from ${source_url} (${subdirectory_filter:-/})"
     # gh repo create [<name>] [flags]
     TMPGHCREATEWORKDIR=$(mktemp -t 'gitmux-gh-create-destination-XXXXXX' -d || errxit "Failed to create tmpdir.")
     # Note: If you want to move the --orphan bits below, remove --bare from the next line.
-    _pushd "${TMPGHCREATEWORKDIR}" && git init --bare --quiet
+    _pushd "${TMPGHCREATEWORKDIR}"
     # TODO: Make --private possible
-    gh repo create "${destination_owner}/${destination_project}" --confirm --public --description "${NEW_REPOSITORY_DESCRIPTION}"
-    _popd
+    gh repo create "${destination_owner}/${destination_project}" --public --license=unlicense --gitignore 'VVVV' --confirm --description "${NEW_REPOSITORY_DESCRIPTION}"
+    _pushd "${destination_project}"
+    git remote --verbose show
+    _popd && _popd
     log "cleaning up gh-create workdir"
     rm -rf "${TMPGHCREATEWORKDIR}"
     ########## </GH CREATE REPO> ################
