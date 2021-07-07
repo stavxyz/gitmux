@@ -443,7 +443,7 @@ if [[ -n "$destination_path" ]] && ! [[ "${destination_path}" == '/' ]]; then
     log "Moving repository files into tempdir."
     # First create a random file in case the directory is empty
     # For some odd reason. (Delete afterward)
-    _rname="$(openssl rand -hex 8).txt"
+    _rname="$(echo $RANDOM$RANDOM | tr '0-9' '[:lower:]').txt"
     echo "Created by gitmux. Serves two puposes, one of which is acting like a .gitkeep and the other has to do with shopt -s extglob. Delete me." > "${_rname}"
     git add --force --intent-to-add "${_rname}"
     shopt -s extglob
