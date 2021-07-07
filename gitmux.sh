@@ -316,7 +316,8 @@ fi
 
 # Remove trailing .git if present
 source_url="${source_url/%\.git/''}"
-source_domain=$(echo "${source_url}" | sed -E "${REPO_REGEX}"'/\2/')
+# the 2nd sed here is to parse out user:<token> notations just in case
+source_domain=$(echo "${source_url}" | sed -E "${REPO_REGEX}"'/\2/' | sed -E "s/(^[a-zA-Z0-9_]{0,38}\:{1})([a-zA-Z0-9_]{5,40})(\@?)"'//')
 source_project=$(echo "${source_url}" | sed -E "${REPO_REGEX}"'/\6/')
 source_owner=$(echo "${source_url}" | sed -E "${REPO_REGEX}"'/\4/')
 source_uri="${source_owner}/${source_project}"
@@ -342,7 +343,8 @@ fi
 
 # Remove trailing .git if present
 destination_url="${destination_url/%\.git/''}"
-destination_domain=$(echo "${destination_url}" | sed -E "${REPO_REGEX}"'/\2/')
+# the 2nd sed here is to parse out user:<token> notations just in case
+destination_domain=$(echo "${destination_url}" | sed -E "${REPO_REGEX}"'/\2/' | sed -E "s/(^[a-zA-Z0-9_]{0,38}\:{1})([a-zA-Z0-9_]{5,40})(\@?)"'//')
 destination_project=$(echo "${destination_url}" | sed -E "${REPO_REGEX}"'/\6/')
 destination_owner=$(echo "${destination_url}" | sed -E "${REPO_REGEX}"'/\4/')
 destination_uri="${destination_owner}/${destination_project}"
