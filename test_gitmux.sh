@@ -372,7 +372,7 @@ run_test_cases() {
   test_defaults_with_existing_upstream_destination
   test_rebase_strategy_theirs_with_existing_upstream_destination
   test_defaults_destination_dne_yet
-  test_defaults_add_orgteam
+  #test_defaults_add_orgteam
   test_defaults_destination_dne_yet_only_wat
   test_defaults_destination_dne_yet_only_toto
 }
