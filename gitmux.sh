@@ -380,7 +380,7 @@ log "DESTINATION PROJECT OWNER ==> ${destination_owner}"
 log "DESTINATION PROJECT NAME ==> ${destination_project}"
 log "DESTINATION PROJECT URI ==> ${destination_uri}"
 
-gitmux_TMP_WORKSPACE=$(mktemp -t 'gitmux-XXXXX' -d || errxit "Failed to create tmpdir.")
+gitmux_TMP_WORKSPACE=$(mktemp -t 'gitmux-XXXXXX' -d || errxit "Failed to create tmpdir.")
 log "Working in tmpdir ${gitmux_TMP_WORKSPACE}"
 _pushd "${gitmux_TMP_WORKSPACE}"
 _GITDIR="tmp-${source_owner}_${source_project}"
@@ -529,7 +529,7 @@ if ! _repo_existence="$(git fetch destination 2>&1)"; then
     log "gh is creating your new repository now!"
     NEW_REPOSITORY_DESCRIPTION="New repository from ${source_url} (${subdirectory_filter:-/})"
     # gh repo create [<name>] [flags]
-    TMPGHCREATEWORKDIR=$(mktemp -t 'gitmux-gh-create-destination-XXXXXXXXXXXXX' -d || errxit "Failed to create tmpdir.")
+    TMPGHCREATEWORKDIR=$(mktemp -t 'gitmux-gh-create-destination-XXXXXX' -d || errxit "Failed to create tmpdir.")
     # Note: If you want to move the --orphan bits below, remove --bare from the next line.
     _pushd "${TMPGHCREATEWORKDIR}" && git init --bare --quiet
     # TODO: Make --private possible
