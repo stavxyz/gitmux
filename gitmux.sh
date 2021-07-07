@@ -295,7 +295,7 @@ REPO_REGEX='s/(.*:\/\/|^git@)(.*)([\/:]{1})([a-zA-Z0-9_\.-]{1,})([\/]{1})([a-zA-
 
 if [[ -d "${source_repository}" ]]; then
   log "Source repository [ ${source_repository} ] is to a local path."
-  source_repository=$(realpath -e "${source_repository}")
+  source_repository=$(_realpath "${source_repository}")
   log "Attempting to discover source repository remote url."
   _pushd "${source_repository}"
   # WARNING: WITHIN THIS BLOCK YOU ARE NOW IN A LOCAL REPOSITORY THAT SOMEONE PROBABLY CARES ABOUT.
@@ -324,7 +324,7 @@ source_uri="${source_owner}/${source_project}"
 
 if [[ -d "${destination_repository}" ]]; then
   log "Destination repository [ ${destination_repository} ] is to a local path."
-  destination_repository=$(realpath -e "${destination_repository}")
+  destination_repository=$(_realpath "${destination_repository}")
   _pushd "${destination_repository}"
   _destination_current_remote=$(git branch -vv --no-color | grep -e '^\*' | sed -E 's/.*\[(.*)\/[a-zA-Z0-9\ \:\,\_\.-]+\].*/\1/')
   destination_url=$(git remote get-url "${_destination_current_remote}")
