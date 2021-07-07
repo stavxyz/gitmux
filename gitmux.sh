@@ -80,6 +80,16 @@ _popd () {
     command popd > /dev/null
 }
 
+_realpath () {
+    if [ -x "$(command -v realpath)" ]; then
+      realpath $@
+      return $?
+    else
+      readlink -f $@
+      return $?
+    fi
+}
+
 cleanup() {
   if [[ -d ${gitmux_TMP_WORKSPACE:-} ]]; then
     # shellcheck disable=SC2086
@@ -124,7 +134,7 @@ SUBDIRECTORY_FILTER="${SUBDIRECTORY_FILTER:-}"
 SOURCE_GIT_REF="${SOURCE_GIT_REF:-}"
 DESTINATION_PATH="${DESTINATION_PATH:-}"
 DESTINATION_REPOSITORY="${DESTINATION_REPOSITORY:-}"
-DESTINATION_BRANCH="${DESTINATION_BRANCH:-master}"
+DESTINATION_BRANCH="${DESTINATION_BRANCH:-trunk}"
 SUBMIT_PR="${SUBMIT_PR:-false}"
 REV_LIST_FILES="${REV_LIST_FILES:-}"
 INTERACTIVE_REBASE="${INTERACTIVE_REBASE:-false}"
@@ -165,9 +175,9 @@ function show_help()
   -r <repository>              Path/url to the [remote] source repository. Required.
   -t <destination_repository>  Path/url to the [remote] destination repository. Required.
   -d <sub/directory>           Directory within source repository to extract. This value is supplied to \`git filter-branch\` as --subdirectory-filter. (default: '/' which is effectively a fork of the entire repo.) Supply a value for -d to extract only a piece/subdirectory of your source repository.
-  -g <gitref>                  Git ref for the [remote] source repository. (default: null, which just uses the HEAD of the default branch, probably 'master', after cloning.) Can be any value valid for \`git checkout <ref>\` e.g. a branch, commit, or tag.
+  -g <gitref>                  Git ref for the [remote] source repository. (default: null, which just uses the HEAD of the default branch, probably 'trunk (or master)', after cloning.) Can be any value valid for \`git checkout <ref>\` e.g. a branch, commit, or tag.
   -p <destination_path>        Destination path for the filtered repository content ( default: '/' which places the repository content into the root of the destination repository. e.g. to place source repository's /app directory content into the /lib directory of your destination repository, supply -p lib )
-  -b <destination_branch>      Destination (a.k.a. base) branch in destination repository against which, changes will be rebased. Further, if [-s] is supplied, the resulting content will be submitted with this destination branch as the target (base) for the pull request. (Default: master)
+  -b <destination_branch>      Destination (a.k.a. base) branch in destination repository against which, changes will be rebased. Further, if [-s] is supplied, the resulting content will be submitted with this destination branch as the target (base) for the pull request. (Default: trunk)
   -l <rev-list options>        Options passed to git rev-list during \`git filter-branch\`. Can be used to specify individual files to be brought into the [new] repository. e.g. -l '--all -- file1.txt file2.txt' For more info see git's documentation for git filter-branch under the parameters for <rev-list options>…
   -o <rebase_options>          Options to supply to \`git rebase\`. If set and includes --interactive or -i, this script will drop you into the workspace to complete the workflow manually (Note: cannot use with -X)
   -X <option>                  Rebase strategy option, e.g. ours/patience. Defaults to 'ours' (Note: cannot use with -o)
@@ -285,7 +295,7 @@ REPO_REGEX='s/(.*:\/\/|^git@)(.*)([\/:]{1})([a-zA-Z0-9_\.-]{1,})([\/]{1})([a-zA-
 
 if [[ -d "${source_repository}" ]]; then
   log "Source repository [ ${source_repository} ] is to a local path."
-  source_repository=$(realpath -e "${source_repository}")
+  source_repository=$(_realpath "${source_repository}")
   log "Attempting to discover source repository remote url."
   _pushd "${source_repository}"
   # WARNING: WITHIN THIS BLOCK YOU ARE NOW IN A LOCAL REPOSITORY THAT SOMEONE PROBABLY CARES ABOUT.
@@ -306,7 +316,8 @@ fi
 
 # Remove trailing .git if present
 source_url="${source_url/%\.git/''}"
-source_domain=$(echo "${source_url}" | sed -E "${REPO_REGEX}"'/\2/')
+# the 2nd sed here is to parse out user:<token> notations just in case
+source_domain=$(echo "${source_url}" | sed -E "${REPO_REGEX}"'/\2/' | sed -E "s/(^[a-zA-Z0-9_]{0,38}\:{1})([a-zA-Z0-9_]{5,40})(\@?)"'//')
 source_project=$(echo "${source_url}" | sed -E "${REPO_REGEX}"'/\6/')
 source_owner=$(echo "${source_url}" | sed -E "${REPO_REGEX}"'/\4/')
 source_uri="${source_owner}/${source_project}"
@@ -314,7 +325,7 @@ source_uri="${source_owner}/${source_project}"
 
 if [[ -d "${destination_repository}" ]]; then
   log "Destination repository [ ${destination_repository} ] is to a local path."
-  destination_repository=$(realpath -e "${destination_repository}")
+  destination_repository=$(_realpath "${destination_repository}")
   _pushd "${destination_repository}"
   _destination_current_remote=$(git branch -vv --no-color | grep -e '^\*' | sed -E 's/.*\[(.*)\/[a-zA-Z0-9\ \:\,\_\.-]+\].*/\1/')
   destination_url=$(git remote get-url "${_destination_current_remote}")
@@ -332,7 +343,8 @@ fi
 
 # Remove trailing .git if present
 destination_url="${destination_url/%\.git/''}"
-destination_domain=$(echo "${destination_url}" | sed -E "${REPO_REGEX}"'/\2/')
+# the 2nd sed here is to parse out user:<token> notations just in case
+destination_domain=$(echo "${destination_url}" | sed -E "${REPO_REGEX}"'/\2/' | sed -E "s/(^[a-zA-Z0-9_]{0,38}\:{1})([a-zA-Z0-9_]{5,40})(\@?)"'//')
 destination_project=$(echo "${destination_url}" | sed -E "${REPO_REGEX}"'/\6/')
 destination_owner=$(echo "${destination_url}" | sed -E "${REPO_REGEX}"'/\4/')
 destination_uri="${destination_owner}/${destination_project}"
@@ -368,7 +380,7 @@ log "DESTINATION PROJECT OWNER ==> ${destination_owner}"
 log "DESTINATION PROJECT NAME ==> ${destination_project}"
 log "DESTINATION PROJECT URI ==> ${destination_uri}"
 
-gitmux_TMP_WORKSPACE=$(mktemp -t 'gitmux-XXXXX' -d || errxit "Failed to create tmpdir.")
+gitmux_TMP_WORKSPACE=$(mktemp -t 'gitmux-XXXXXX' -d || errxit "Failed to create tmpdir.")
 log "Working in tmpdir ${gitmux_TMP_WORKSPACE}"
 _pushd "${gitmux_TMP_WORKSPACE}"
 _GITDIR="tmp-${source_owner}_${source_project}"
@@ -379,7 +391,7 @@ _WORKSPACE=$(pwd)
 
 # The following is unnecessary when doing a full clone.
 # Without a full clone, this procedure just doesnt work quite right.
-#git fetch --update-shallow --shallow-since=1month --update-head-ok --progress origin master
+#git fetch --update-shallow --shallow-since=1month --update-head-ok --progress origin trunk
 
 # If a non-default ref is specified, fetch it explicitly and perform a checkout.
 if [[ -n "${source_git_ref}" ]]; then
@@ -431,7 +443,7 @@ if [[ -n "$destination_path" ]] && ! [[ "${destination_path}" == '/' ]]; then
     log "Moving repository files into tempdir."
     # First create a random file in case the directory is empty
     # For some odd reason. (Delete afterward)
-    _rname="$(openssl rand -hex 8).txt"
+    _rname="$(echo $RANDOM$RANDOM | tr '0-9' '[:lower:]').txt"
     echo "Created by gitmux. Serves two puposes, one of which is acting like a .gitkeep and the other has to do with shopt -s extglob. Delete me." > "${_rname}"
     git add --force --intent-to-add "${_rname}"
     shopt -s extglob
@@ -514,15 +526,17 @@ if ! _repo_existence="$(git fetch destination 2>&1)"; then
 
     ########## <GH CREATE REPO> ################
     # `gh repo create` runs from inside a git repository. (weird)
-    log "gh is creating your new repository now!"
+    log "gh is creating your new repository now! ( ${destination_owner}/${destination_project} )"
     NEW_REPOSITORY_DESCRIPTION="New repository from ${source_url} (${subdirectory_filter:-/})"
     # gh repo create [<name>] [flags]
-    TMPGHCREATEWORKDIR=$(mktemp -t 'gitmux-gh-create-destination-XXXXXXXXXXXXX' -d || errxit "Failed to create tmpdir.")
+    TMPGHCREATEWORKDIR=$(mktemp -t 'gitmux-gh-create-destination-XXXXXX' -d || errxit "Failed to create tmpdir.")
     # Note: If you want to move the --orphan bits below, remove --bare from the next line.
-    _pushd "${TMPGHCREATEWORKDIR}" && git init --bare --quiet
+    _pushd "${TMPGHCREATEWORKDIR}"
     # TODO: Make --private possible
-    gh repo create "${destination_owner}/${destination_project}" --confirm --public --description "${NEW_REPOSITORY_DESCRIPTION}"
-    _popd
+    gh repo create "${destination_owner}/${destination_project}" --public --license=unlicense --gitignore 'VVVV' --confirm --description "${NEW_REPOSITORY_DESCRIPTION}"
+    _pushd "${destination_project}"
+    git remote --verbose show
+    _popd && _popd
     log "cleaning up gh-create workdir"
     rm -rf "${TMPGHCREATEWORKDIR}"
     ########## </GH CREATE REPO> ################
@@ -532,15 +546,17 @@ if ! _repo_existence="$(git fetch destination 2>&1)"; then
     # Our brand new repo destination branch needs at least one commit (to be the base branch of a PR).
     # This will also help remind us where this repository came from.
     git status
-    # A local 'master' branch probably already exists
-    git checkout --orphan "gitmux-dest-${destination_branch}"
+    # A local 'trunk' branch probably already exists
+    git checkout -b "gitmux-dest-${destination_branch}" destination/trunk
+    git pull destination trunk
     # Unstage everything (from ${DESTINATION_PR_BRANCH_NAME})
     git rm -r --cached .
     git status
     log "Creating empty commit for its own sake"
     git commit --message 'Hello: this repository was created by gitmux.' --allow-empty
     # git push destination "${destination_branch}"
-    git push destination "gitmux-dest-${destination_branch}:master"
+    pwd
+    git push destination "gitmux-dest-${destination_branch}:trunk"
     # Now go back to the build branch.
     log "Going back to build branch --> ${DESTINATION_PR_BRANCH_NAME}"
     git checkout --force "${DESTINATION_PR_BRANCH_NAME}"
