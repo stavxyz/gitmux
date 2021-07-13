@@ -144,7 +144,7 @@ KEEP_TMP_WORKSPACE="${KEEP_TMP_WORKSPACE:-false}"
 # Don't default these rebase options *yet*
 MERGE_STRATEGY_OPTION_FOR_REBASE="${MERGE_STRATEGY_OPTION_FOR_REBASE:-ours}"
 REBASE_OPTIONS="${REBASE_OPTIONS:-}"
-GH_HOST="${GH_HOST:-}"
+GH_HOST="${GH_HOST:-github.com}"
 GITHUB_TEAMS=()
 
 source_repository="${SOURCE_REPOSITORY}"
