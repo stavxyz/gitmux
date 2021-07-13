@@ -14,9 +14,14 @@ build:
 
 .PHONY:
 run:
-	@docker run --interactive --tty \
+	docker run --interactive --tty \
 	--volume $(shell pwd)/gitmux.sh:/gitmux.sh \
-	$(REPOSITORY):latest
+	--volume $(HOME)/.ssh:/root/.ssh \
+	$(REPOSITORY):latest \
+	/bin/bash -c \
+	"git config --global user.email \"$(shell git config --global user.email)\" &&  \
+	git config --global user.name \"$(shell git config --global user.name)\" && \
+	/bin/bash"
 
 .PHONY:
 run-test:
