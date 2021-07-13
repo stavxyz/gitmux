@@ -397,8 +397,7 @@ _WORKSPACE=$(pwd)
 if [[ -n "${source_git_ref}" ]]; then
   log "A specific git ref was given; checking out ${source_git_ref}"
   for _remote in $(git remote show); do
-    log "Fetching ${source_git_ref} from ${_remote}"
-    log "Running \'git fetch --verbose --tags --progress "${_remote}" "${source_git_ref}"\' in $(pwd)"
+    log "Running \'git fetch --verbose --tags --progress ""${_remote}"" ""${source_git_ref}""\' in $(pwd)"
     git fetch --verbose --tags --progress "${_remote}" "${source_git_ref}"
   done
   log "Checking out ${source_git_ref}"
