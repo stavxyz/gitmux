@@ -694,8 +694,9 @@ fi
 
 echo "Now create a pull request from ${DESTINATION_PR_BRANCH_NAME} into ${destination_branch}"
 
+PR_TITLE="Sync from ${source_uri} \`${source_git_ref:-${GIT_BRANCH}}\` revision \`${GIT_SHA}\`"
 PR_DESCRIPTION=$(printf "%s\n" \
-  "Sync from ${source_uri} \`${source_git_ref:-${GIT_BRANCH}}\` revision \`${GIT_SHA}\`" \
+  "${PR_TITLE}" \
   "" \
   "# Hello" \
   "This is an automated pull request created by \`gitmux\`." \
@@ -722,11 +723,13 @@ PR_DESCRIPTION=$(printf "%s\n" \
 if [ -x "$(command -v gh)" ] && [ ${SUBMIT_PR} = true ]; then
   # shellcheck disable=SC2016
   echo '`gh` is installed. Submitting PR'
-  gh pr create --body "${PR_DESCRIPTION}" \
+  gh pr --repo "${destination_domain}/${destination_owner}/${destination_project}" \
+    create \
+    --title "${PR_TITLE}" \
+    --body "${PR_DESCRIPTION}" \
     --assignee @me \
-    --label gitmux \
-    --base "${destination_uri}:${destination_branch}" \
-    --head "${destination_uri}:${DESTINATION_PR_BRANCH_NAME}"
+    --base "${destination_branch}" \
+    --head "${destination_owner}:${DESTINATION_PR_BRANCH_NAME}"
 else
   errcho "Please manually submit PR for branch ${DESTINATION_PR_BRANCH_NAME} to ${destination_repository}"
   errcho "auto-generated pull request description:" "" "${PR_DESCRIPTION}"
