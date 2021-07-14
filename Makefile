@@ -13,7 +13,7 @@ build:
 	--file Dockerfile .
 
 .PHONY:
-push: tag
+push:
 	docker push samstav/gitmux:latest
 
 .PHONY:
