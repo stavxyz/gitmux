@@ -4,24 +4,29 @@ REPOSITORY ?= gitmux
 .PHONY:
 ls:
 	@docker images --no-trunc --format '{{json .}}' | \
-		jq -r 'select((.Repository|startswith("$(REPOSITORY)")))' | jq -rs 'sort_by(.Repository)|.[]|"\(.ID)\t\(.Repository):\(.Tag)\t(\(.CreatedSince))\t[\(.Size)]"'
+		jq -r 'select((.Repository|contains("$(REPOSITORY)")))' | jq -rs 'sort_by(.Repository)|.[]|"\(.ID)\t\(.Repository):\(.Tag)\t(\(.CreatedSince))\t[\(.Size)]"'
 
 .PHONY:
 build:
 	@docker build \
-	--tag $(REPOSITORY):latest \
+	--tag samstav/$(REPOSITORY):latest \
 	--file Dockerfile .
 
 .PHONY:
+push: tag
+	docker push samstav/gitmux:latest
+
+.PHONY:
 run:
-	docker run --interactive --tty \
+	docker run \
+	--interactive \
+	--tty \
+	--rm \
+	--stop-timeout=60 \
 	--volume $(shell pwd)/gitmux.sh:/gitmux.sh \
 	--volume $(HOME)/.ssh:/root/.ssh \
-	$(REPOSITORY):latest \
-	/bin/bash -c \
-	"git config --global user.email \"$(shell git config --global user.email)\" &&  \
-	git config --global user.name \"$(shell git config --global user.name)\" && \
-	/bin/bash"
+	samstav/$(REPOSITORY):latest \
+	/bin/bash
 
 .PHONY:
 run-test:
@@ -30,13 +35,13 @@ run-test:
 	--env GH_TOKEN \
 	--env GITHUB_OWNER \
 	--interactive --tty \
-	--volume $(shell pwd)/gitmux.sh:/gitmux.sh \
-	--volume $(shell pwd)/test_gitmux.sh:/test_gitmux.sh \
-	$(REPOSITORY):latest \
+	--volume $(shell pwd)/gitmux.sh:/gitmux/gitmux.sh \
+	--volume $(shell pwd)/test_gitmux.sh:/gitmux/test_gitmux.sh \
+	samstav/$(REPOSITORY):latest \
 	/bin/bash -c \
 	"git config --global user.email \"$(shell git config --global user.email)\" &&  \
 	git config --global user.name \"$(shell git config --global user.name)\" && \
-	./test_gitmux.sh"
+	/gitmux/test_gitmux.sh"
 
 
 define cleanup =
