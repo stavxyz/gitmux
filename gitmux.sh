@@ -239,9 +239,9 @@ shift $((OPTIND-1))
 # Argument validation.
 #
 if [[ -z "$source_repository" ]]; then
-  errxit "Source repository url or path is required"
+  errxit "Source repository url or path (-r) is required"
 elif [[ -z "$destination_repository" ]]; then
-  errxit "Destination repository url or path is required"
+  errxit "Destination repository url or path (-t) is required"
 elif [[ -z "${GH_HOST:-}" ]]; then
   errxit "GH_HOST must be set."
 fi
