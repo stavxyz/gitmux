@@ -81,13 +81,20 @@ _popd () {
 }
 
 _realpath () {
-    if [ -x "$(command -v realpath)" ]; then
+    if _cmd_exists realpath; then
       realpath $@
       return $?
     else
       readlink -f $@
       return $?
     fi
+}
+
+_cmd_exists () {
+  if ! type "$@" &> /dev/null; then
+    errcho "$@ command not installed"
+    return 1
+  fi
 }
 
 cleanup() {
@@ -212,9 +219,9 @@ while getopts "h?vr:d:g:t:p:z:b:l:o:X:sick" OPT; do
       ;;
     X) [ -n "${_rebase_option_flags}" ] && show_help && errxit "" "error: -${OPT} cannot be used with -o" || _rebase_option_flags='set' MERGE_STRATEGY_OPTION_FOR_REBASE=$OPTARG
       ;;
-    z) [ ! -x "$(command -v gh)" ] && show_help && errxit "" "error: -${OPT} requires gh-cli" || GITHUB_TEAMS+=("$OPTARG")
+    z) [ ! -x "$(_cmd_exists gh)" ] && show_help && errxit "" "error: -${OPT} requires gh-cli" || GITHUB_TEAMS+=("$OPTARG")
       ;;
-    s)  SUBMIT_PR=true
+    s) [ ! -x "$(_cmd_exists gh)" ] && show_help && errxit "" "error: -${OPT} requires gh-cli" || SUBMIT_PR+=true
       ;;
     o) [ -n "${_rebase_option_flags}" ] && show_help && errxit "" "error: -${OPT} cannot be used with -X" || _rebase_option_flags='set' REBASE_OPTIONS=$OPTARG
       ;;
@@ -679,7 +686,7 @@ function add_team_to_repository() {
 # </GitHub API Functions>
 #
 
-if [ -x "$(command -v gh)" ] && [ ${#GITHUB_TEAMS[@]} -gt 0 ]; then
+if _cmd_exists gh && [ ${#GITHUB_TEAMS[@]} -gt 0 ]; then
   # shellcheck disable=SC2016
   echo "\`gh\` is installed. Adding teams ( ${GITHUB_TEAMS[*]} ) to ${destination_repository}"
   for orgteam in "${GITHUB_TEAMS[@]}"; do
@@ -720,7 +727,7 @@ PR_DESCRIPTION=$(printf "%s\n" \
   "------------------------------" \
 )
 
-if [ -x "$(command -v gh)" ] && [ ${SUBMIT_PR} = true ]; then
+if _cmd_exists gh && [ ${SUBMIT_PR} = true ]; then
   # shellcheck disable=SC2016
   echo '`gh` is installed. Submitting PR'
   gh pr --repo "${destination_domain}/${destination_owner}/${destination_project}" \
