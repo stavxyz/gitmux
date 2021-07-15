@@ -91,8 +91,8 @@ _realpath () {
 }
 
 _cmd_exists () {
-  if ! type "$@" &> /dev/null; then
-    errcho "$@ command not installed"
+  if ! type "$*" &> /dev/null; then
+    errcho "$* command not installed"
     return 1
   fi
 }
@@ -219,9 +219,9 @@ while getopts "h?vr:d:g:t:p:z:b:l:o:X:sick" OPT; do
       ;;
     X) [ -n "${_rebase_option_flags}" ] && show_help && errxit "" "error: -${OPT} cannot be used with -o" || _rebase_option_flags='set' MERGE_STRATEGY_OPTION_FOR_REBASE=$OPTARG
       ;;
-    z) [ ! -x "$(_cmd_exists gh)" ] && show_help && errxit "" "error: -${OPT} requires gh-cli" || GITHUB_TEAMS+=("$OPTARG")
+    z) ! _cmd_exists gh && show_help && errxit "" "error: -${OPT} requires gh-cli" || GITHUB_TEAMS+=("$OPTARG")
       ;;
-    s) [ ! -x "$(_cmd_exists gh)" ] && show_help && errxit "" "error: -${OPT} requires gh-cli" || SUBMIT_PR+=true
+    s) ! _cmd_exists gh && show_help && errxit "" "error: -${OPT} requires gh-cli" || SUBMIT_PR+=true
       ;;
     o) [ -n "${_rebase_option_flags}" ] && show_help && errxit "" "error: -${OPT} cannot be used with -X" || _rebase_option_flags='set' REBASE_OPTIONS=$OPTARG
       ;;
