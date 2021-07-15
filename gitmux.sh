@@ -221,7 +221,7 @@ while getopts "h?vr:d:g:t:p:z:b:l:o:X:sick" OPT; do
       ;;
     z) ! _cmd_exists gh && show_help && errxit "" "error: -${OPT} requires gh-cli" || GITHUB_TEAMS+=("$OPTARG")
       ;;
-    s) ! _cmd_exists gh && show_help && errxit "" "error: -${OPT} requires gh-cli" || SUBMIT_PR+=true
+    s) ! _cmd_exists gh && show_help && errxit "" "error: -${OPT} requires gh-cli" || SUBMIT_PR=true
       ;;
     o) [ -n "${_rebase_option_flags}" ] && show_help && errxit "" "error: -${OPT} cannot be used with -X" || _rebase_option_flags='set' REBASE_OPTIONS=$OPTARG
       ;;
