@@ -408,7 +408,7 @@ if [[ -n "${source_git_ref}" ]]; then
     git fetch --verbose --tags --progress "${_remote}" "${source_git_ref}"
   done
   log "Checking out ${source_git_ref}"
-  git checkout --guess ${source_git_ref}
+  git checkout --guess "${source_git_ref}"
 fi
 
 GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
@@ -698,6 +698,10 @@ if _cmd_exists gh && [ ${#GITHUB_TEAMS[@]} -gt 0 ]; then
   done
 fi
 
+# TODO: interpolate url links
+# e.g.
+_canonical_source_https_url="https://${source_domain}/${source_owner}/${source_project}"
+_canonical_destination_https_url="https://${destination_domain}/${destination_owner}/${destination_project}"
 
 echo "Now create a pull request from ${DESTINATION_PR_BRANCH_NAME} into ${destination_branch}"
 
@@ -709,19 +713,17 @@ PR_DESCRIPTION=$(printf "%s\n" \
   "This is an automated pull request created by \`gitmux\`." \
   "" \
   "## Source repository details" \
-  "Source repository: [\`${source_repository}\`](${source_repository})" \
-  "Source url: [\`${source_url}\`](${source_url})" \
+  "Source URL: [\`${_canonical_source_https_url}\`](${_canonical_source_https_url})" \
   "Source git ref (if provided): \`${source_git_ref:-n/a}\`" \
   "Source git branch: \`${source_git_ref:-${GIT_BRANCH}}\` (\`${GIT_SHA}\`)" \
   "Directory within source repository (if provided, else entire repository): \`${subdirectory_filter:-/}\`" \
   "Repository url: [\`https://${source_domain}/${source_owner}/${source_project}/tree/${GIT_SHA}/${SUBDIRECTORY_FILTER}\`](https://${source_domain}/${source_owner}/${source_project}/tree/${GIT_SHA}/${SUBDIRECTORY_FILTER})" \
   "" \
   "## Destination repository details" \
-  "Destination repository: [\`${destination_repository}\`](${destination_repository})" \
+  "Destination URL: [\`${_canonical_destination_https_url}\`](${_canonical_destination_https_url})" \
   "PR Branch at Destination (head): \`${DESTINATION_PR_BRANCH_NAME}\`" \
   "Destination branch (base): \`${DESTINATION_BRANCH}\`" \
   "PR Branch URL: [\`https://${destination_domain}/${destination_owner}/${destination_project}/tree/${DESTINATION_PR_BRANCH_NAME}/${DESTINATION_PATH:-}\`](https://${destination_domain}/${destination_owner}/${destination_project}/tree/${DESTINATION_PR_BRANCH_NAME}/${DESTINATION_PATH:-})" \
-  "Destination url: [\`${destination_url}\`](${destination_url})" \
   "Destination path (if applicable, or identical in structure to source): \`${DESTINATION_PATH:-n/a}\`" \
   "" \
   "------------------------------" \
