@@ -1,0 +1,205 @@
+name: ShellCheck
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  filter-paths:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      shell_changed: ${{ steps.filter.outputs.shell }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Needed for accurate path filtering on push events
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            shell:
+              - '.claude/**/*.sh'
+              - '.claude/git-hooks/**'
+              - '.github/workflows/shellcheck.yml'
+
+  shellcheck:
+    needs: filter-paths
+    if: needs.filter-paths.outputs.shell_changed == 'true'
+    name: ShellCheck Bash Scripts
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install ShellCheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+
+      - name: Verify ShellCheck installation
+        run: shellcheck --version
+
+      - name: Find bash scripts
+        id: find-scripts
+        run: |
+          # Find all .sh files and git-hooks (which are bash scripts without extension)
+          # Exclude README.md and other markdown files
+          SCRIPTS=$(find .claude -type f \( -name "*.sh" -o -path ".claude/git-hooks/*" \) ! -name "*.md" 2>/dev/null || echo "")
+
+          if [ -z "$SCRIPTS" ]; then
+            echo "No bash scripts found"
+            exit 0
+          fi
+
+          echo "Found bash scripts:"
+          echo "$SCRIPTS" | while read -r script; do
+            echo "  - $script"
+          done
+
+          # Save script list for next step
+          echo "$SCRIPTS" > /tmp/scripts-to-check.txt
+
+      - name: Run ShellCheck
+        run: |
+          if [ ! -f /tmp/scripts-to-check.txt ]; then
+            echo "No scripts to check"
+            exit 0
+          fi
+
+          SCRIPTS=$(cat /tmp/scripts-to-check.txt)
+          if [ -z "$SCRIPTS" ]; then
+            echo "No scripts to check"
+            exit 0
+          fi
+
+          # Count scripts
+          SCRIPT_COUNT=$(echo "$SCRIPTS" | wc -l)
+          echo "Running ShellCheck on $SCRIPT_COUNT script(s)..."
+          echo ""
+
+          # Show which files will be checked
+          echo "Files to check:"
+          while read -r script; do
+            echo "  - $script"
+          done < <(echo "$SCRIPTS")
+          echo ""
+
+          # Run shellcheck on each script individually for better output
+          # This way we see each file being processed
+          FAILED=0
+          # Use process substitution to avoid subshell variable scope issue
+          while read -r script; do
+            echo "Checking: $script"
+            if ! shellcheck --color=always "$script"; then
+              FAILED=1
+            fi
+          done < <(echo "$SCRIPTS")
+
+          if [ "$FAILED" -eq 1 ]; then
+            echo ""
+            echo "❌ ShellCheck found issues"
+            exit 1
+          fi
+
+          echo ""
+          echo "✅ All $SCRIPT_COUNT script(s) passed ShellCheck"
+
+      - name: Check for global ShellCheck disables (FORBIDDEN)
+        run: |
+          echo "Checking for global ShellCheck disable directives..."
+          echo ""
+          echo "Policy: We NEVER use global shellcheck disables."
+          echo "  - Fix the code, not the linter"
+          echo "  - If you must disable, use inline directives for specific lines only"
+          echo ""
+
+          # Configuration: How many lines at the top of each file to check for global disables
+          # Rationale: Global disables are typically at the top before any code
+          # 20 lines is sufficient to catch file-level disables while avoiding false positives
+          # from legitimate inline disables within functions (which usually start after line 20)
+          readonly FILE_HEADER_LINES=20
+
+          # Reuse script list from previous step
+          if [ ! -f /tmp/scripts-to-check.txt ]; then
+            echo "No scripts to check"
+            exit 0
+          fi
+
+          SCRIPTS=$(cat /tmp/scripts-to-check.txt)
+          if [ -z "$SCRIPTS" ]; then
+            echo "No scripts to check"
+            exit 0
+          fi
+
+          # Check for global disable patterns at the file level
+          # Global disables are typically at the top of the file before any functions/code
+          # Pattern: # shellcheck disable=SC#### (at file level, not in function)
+          FOUND_GLOBAL_DISABLES=0
+
+          # Use process substitution to avoid subshell variable scope issue
+          while read -r script; do
+            # Look for shellcheck disable directives in the first N lines (before main code)
+            # This catches file-level disables but not inline disables within functions
+            DISABLES=$(head -n "$FILE_HEADER_LINES" "$script" 2>/dev/null | grep -n "^[[:space:]]*#[[:space:]]*shellcheck[[:space:]]*disable=" || true)
+
+            if [ -n "$DISABLES" ]; then
+              echo "❌ FORBIDDEN: Global ShellCheck disable found in: $script"
+              echo "$DISABLES"
+              echo ""
+              FOUND_GLOBAL_DISABLES=1
+            fi
+          done < <(echo "$SCRIPTS")
+
+          if [ "$FOUND_GLOBAL_DISABLES" -eq 1 ]; then
+            echo ""
+            echo "❌ FAILURE: Global ShellCheck disables are FORBIDDEN"
+            echo ""
+            echo "Instead of disabling checks globally:"
+            echo "  1. Fix the code to pass shellcheck"
+            echo "  2. Refactor to avoid the pattern triggering the warning"
+            echo "  3. If absolutely necessary, use inline disables for specific lines:"
+            echo "     # shellcheck disable=SC####"
+            echo "     problematic_line"
+            echo ""
+            exit 1
+          fi
+
+          echo "✅ No global ShellCheck disables found"
+
+      - name: Verify script executability
+        run: |
+          echo "Checking script executability..."
+
+          # Check that scripts in hooks/ and git-hooks/ are executable
+          HOOK_SCRIPTS=$(find .claude/hooks .claude/git-hooks -type f 2>/dev/null || echo "")
+
+          if [ -z "$HOOK_SCRIPTS" ]; then
+            echo "No hook scripts to check"
+            exit 0
+          fi
+
+          NON_EXECUTABLE=""
+          # Use process substitution to avoid subshell variable scope issue
+          while read -r script; do
+            if [ ! -x "$script" ]; then
+              echo "⚠️ Not executable: $script"
+              NON_EXECUTABLE="$NON_EXECUTABLE $script"
+            fi
+          done < <(echo "$HOOK_SCRIPTS")
+
+          if [ -n "$NON_EXECUTABLE" ]; then
+            echo ""
+            echo "ℹ️ Some hook scripts are not executable"
+            echo "   This is OK if they're installed by a script"
+            echo "   But ensure install scripts set +x correctly"
+          else
+            echo "✅ All hook scripts are executable"
+          fi
