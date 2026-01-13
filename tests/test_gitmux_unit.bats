@@ -12,66 +12,76 @@ load_bats_libs() {
     fi
 }
 
-# Setup: Source the functions we want to test
+# Setup: Extract and source functions from gitmux.sh
+# This ensures tests always use the actual implementation
 setup() {
-    # Create a temporary file with just the functions we need
-    # This avoids running the main script logic
+    export GITMUX_SCRIPT="${BATS_TEST_DIRNAME}/../gitmux.sh"
     export TEST_HELPER="${BATS_TEST_TMPDIR}/test_helper.sh"
 
-    cat > "${TEST_HELPER}" << 'HELPER_EOF'
+    # Create a helper file by extracting functions from gitmux.sh
+    # This avoids running the main script logic while testing real functions
+    cat > "${TEST_HELPER}" << 'HELPER_HEADER'
 #!/usr/bin/env bash
+# Stub errcho to avoid dependency on the full script
+errcho() { printf "%s\n" "$@" 1>&2; }
+HELPER_HEADER
 
-# Helper function: strip leading and trailing slashes
-function stripslashes () {
-    echo "$@" | sed 's:/*$::' | sed 's:^/*::'
-}
+    # Extract functions and constants from gitmux.sh
+    {
+        # _cmd_exists function
+        sed -n '/^_cmd_exists () {/,/^}/p' "${GITMUX_SCRIPT}"
+        # _realpath function
+        sed -n '/^_realpath () {/,/^}/p' "${GITMUX_SCRIPT}"
+        # stripslashes function
+        sed -n '/^function stripslashes () {/,/^}/p' "${GITMUX_SCRIPT}"
+        # REPO_REGEX constant
+        grep "^REPO_REGEX=" "${GITMUX_SCRIPT}"
+    } >> "${TEST_HELPER}"
 
-# Helper function: check if command exists
-_cmd_exists () {
-    if ! type "$*" &> /dev/null; then
-        return 1
-    fi
-    return 0
-}
+    # Add URL parsing helper functions that use the extracted REPO_REGEX
+    # These wrap the inline sed logic used in gitmux.sh for testability
+    cat >> "${TEST_HELPER}" << 'HELPER_FOOTER'
 
-# Helper function: cross-platform realpath
-_realpath () {
-    if _cmd_exists realpath; then
-        realpath "$@"
-        return $?
-    else
-        readlink -f "$@"
-        return $?
-    fi
-}
-
-# Regex for parsing repository URLs
-REPO_REGEX='s/(.*:\/\/|^git@)(.*)([\/:]{1})([a-zA-Z0-9_\.-]{1,})([\/]{1})([a-zA-Z0-9_\.-]{1,}$)'
-
-# Parse source domain from URL
+# Parse domain from repository URL
+# Uses the same sed logic as gitmux.sh lines 382, 409
 parse_domain() {
     local url="${1}"
     echo "${url}" | sed -E "${REPO_REGEX}"'/\2/' | sed -E "s/(^[a-zA-Z0-9_-]{0,38}\:{1})([a-zA-Z0-9_]{5,40})(\@?)"'//'
 }
 
-# Parse project name from URL
+# Parse project name from repository URL
+# Uses the same sed logic as gitmux.sh lines 383, 410
 parse_project() {
     local url="${1}"
     echo "${url}" | sed -E "${REPO_REGEX}"'/\6/'
 }
 
-# Parse owner from URL
+# Parse owner from repository URL
+# Uses the same sed logic as gitmux.sh lines 384, 411
 parse_owner() {
     local url="${1}"
     echo "${url}" | sed -E "${REPO_REGEX}"'/\4/'
 }
-HELPER_EOF
+HELPER_FOOTER
 
     source "${TEST_HELPER}"
 }
 
 teardown() {
     rm -f "${TEST_HELPER}"
+}
+
+# ============================================================================
+# Function extraction verification
+# ============================================================================
+
+@test "setup: successfully extracts functions from gitmux.sh" {
+    # Verify the helper file was created and contains expected content
+    [[ -f "${TEST_HELPER}" ]]
+    grep -q "_cmd_exists" "${TEST_HELPER}"
+    grep -q "_realpath" "${TEST_HELPER}"
+    grep -q "stripslashes" "${TEST_HELPER}"
+    grep -q "REPO_REGEX" "${TEST_HELPER}"
 }
 
 # ============================================================================
