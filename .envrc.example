@@ -4,10 +4,18 @@
 #
 # CRITICAL: This file (.envrc) is in .gitignore for a reason!
 # NEVER commit .envrc to version control, even if you think it contains no secrets.
+#
+# Quick setup:
+#   cp .envrc.example .envrc
+#   direnv allow
+#   just setup
 
 # Python virtual environment
-# Uncomment if you want direnv to automatically activate your venv
+# Uncomment to automatically activate your venv when entering this directory
 # layout python python3
+
+# Or use explicit path activation:
+# source_env_if_exists .venv/bin/activate
 
 # Claude Code Model Configuration
 # The project default is "opus" (Claude Opus 4.5 for all operations)
@@ -41,3 +49,17 @@
 
 # Note: direnv sources this file when you cd into the project
 # Keep it fast - avoid slow operations in .envrc that would slow down directory changes
+
+# ============================================================================
+# gitmux-specific configuration
+# ============================================================================
+
+# GitHub host (for GitHub Enterprise)
+# export GH_HOST="github.com"
+
+# GitHub owner for test repository creation
+# export GITHUB_OWNER="your-username"
+
+# GitHub token (required for integration tests and -s/-c/-z flags)
+# WARNING: Never commit tokens! Use a secrets manager or pass via environment.
+# export GH_TOKEN="ghp_..."
