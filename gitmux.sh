@@ -281,7 +281,7 @@ while getopts "h?vr:d:g:t:p:z:b:l:o:X:sick" OPT; do
       ;;
     h)  show_help && exit 0;;
     v)   _verbose=1;;
-    \? ) show_help && errxit "Unknown option: -${OPT} ( ${OPTARG} )";;
+    \? ) show_help; errxit "Unknown option: -${OPT} ( ${OPTARG} )";;
     ':') errxit "Missing option argument for -${OPT} ( ${OPTARG} )";;
     *  ) errxit "Unimplemented option: -${OPT} ( ${OPTARG} )";;
   esac
