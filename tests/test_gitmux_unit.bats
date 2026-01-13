@@ -1,4 +1,5 @@
 #!/usr/bin/env bats
+# shellcheck disable=SC1090  # Can't follow dynamic sources (expected in bats tests)
 # Unit tests for gitmux.sh helper functions
 # Run with: bats tests/test_gitmux_unit.bats
 
