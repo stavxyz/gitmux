@@ -281,7 +281,7 @@ while getopts "h?vr:d:g:t:p:z:b:l:o:X:sick" OPT; do
       ;;
     h)  show_help && exit 0;;
     v)   _verbose=1;;
-    \? ) errxit show_help && errxit "Unknown option: -${OPT} ( ${OPTARG} )";;
+    \? ) show_help && errxit "Unknown option: -${OPT} ( ${OPTARG} )";;
     ':') errxit "Missing option argument for -${OPT} ( ${OPTARG} )";;
     *  ) errxit "Unimplemented option: -${OPT} ( ${OPTARG} )";;
   esac
@@ -339,7 +339,7 @@ if [[ -z "${REBASE_OPTIONS}" ]]; then
   _append_to_pr_branch_name="${MERGE_STRATEGY_OPTION_FOR_REBASE}"
 fi
 
-if [ ${INTERACTIVE_REBASE} = true ]; then
+if [ "${INTERACTIVE_REBASE}" = true ]; then
   # This will result in rebase detection below and force a manual workflow for completion.
   REBASE_OPTIONS="${REBASE_OPTIONS} --interactive"
 fi
@@ -585,7 +585,7 @@ log "$(git status)"
 log "Attempting to fetch remote 'destination' --> ${destination_repository}"
 if ! _repo_existence="$(git fetch destination 2>&1)"; then
   log "Destination repository (${destination_repository}) doesn't exist. If -c supplied, create it"
-  if [ ${CREATE_NEW_REPOSITORY} = true ] && [[ "${_repo_existence}" =~ "Repository not found" ]]; then
+  if [ "${CREATE_NEW_REPOSITORY}" = true ] && [[ "${_repo_existence}" =~ "Repository not found" ]]; then
 
     ########## <GH CREATE REPO> ################
     # `gh repo create` runs from inside a git repository. (weird)
@@ -626,7 +626,7 @@ if ! _repo_existence="$(git fetch destination 2>&1)"; then
   else
     errxit "${_repo_existence}"
   fi
-elif [ ${CREATE_NEW_REPOSITORY} = true ]; then
+elif [ "${CREATE_NEW_REPOSITORY}" = true ]; then
   # -c was supplied but the repository already existed.
   errxit "Destination repository ( ${destination_repository} ) already exists. -c is not needed."
 fi
@@ -802,7 +802,7 @@ PR_DESCRIPTION=$(printf "%s\n" \
   "------------------------------" \
 )
 
-if _cmd_exists gh && [ ${SUBMIT_PR} = true ]; then
+if _cmd_exists gh && [ "${SUBMIT_PR}" = true ]; then
   # shellcheck disable=SC2016
   echo '`gh` is installed. Submitting PR'
   gh pr --repo "${destination_domain}/${destination_owner}/${destination_project}" \
