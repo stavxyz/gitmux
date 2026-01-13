@@ -1,0 +1,109 @@
+name: Feature Request
+description: Suggest a new feature or enhancement
+title: "[Feature]: "
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting a new feature! Please provide detailed information below.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Statement
+      description: What problem does this feature solve? What pain point does it address?
+      placeholder: I'm frustrated when...
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: Describe your proposed solution or feature
+      placeholder: I would like to see...
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: What alternative solutions or features have you considered?
+      placeholder: I also considered...
+    validations:
+      required: false
+
+  - type: textarea
+    id: documentation-impact
+    attributes:
+      label: Documentation Impact
+      description: |
+        **REQUIRED**: What documentation would need to be created or updated?
+        Consider: README, API docs, architecture docs, user guides, examples
+      placeholder: |
+        This feature would require:
+        - README.md: Add section on new feature usage
+        - docs/api.md: Document new endpoints/methods
+        - examples/: Add example usage
+        - Architecture docs: Explain design decisions
+    validations:
+      required: true
+
+  - type: textarea
+    id: user-facing
+    attributes:
+      label: User-Facing Changes
+      description: What changes will users see or experience?
+      placeholder: |
+        - New command: `myapp feature-name`
+        - New configuration option: `feature.enabled`
+        - Breaking changes: None
+    validations:
+      required: true
+
+  - type: textarea
+    id: api-changes
+    attributes:
+      label: API Changes
+      description: Will this introduce new APIs, modify existing ones, or cause breaking changes?
+      placeholder: |
+        New APIs:
+        - `function_name(param: Type) -> ReturnType`
+
+        Modified APIs:
+        - `existing_function()` now accepts additional parameter
+
+        Breaking changes:
+        - None / Describe any breaking changes
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: breaking
+    attributes:
+      label: Breaking Changes
+      description: Will this feature introduce breaking changes?
+      options:
+        - label: This feature includes breaking changes
+        - label: I have documented the breaking changes above
+        - label: I have described migration path for users
+
+  - type: textarea
+    id: use-cases
+    attributes:
+      label: Use Cases
+      description: Describe specific use cases for this feature
+      placeholder: |
+        1. As a developer, I want to...
+        2. As a user, I need to...
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: Any other context, mockups, examples, or references
+      placeholder: Add any additional information...
