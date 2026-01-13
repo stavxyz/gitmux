@@ -54,7 +54,7 @@ cleanup() {
   rm -rf "${TMPTESTWORKDIR}"
   for r in "${repositoriesToDelete[@]}"; do
      echo "Deleting ${r}"
-     gh api --method DELETE repos/"${r}"
+     gh api --method DELETE repos/"${r}" 2>/dev/null || true
   done
   echo "🛀"
 }
@@ -106,21 +106,26 @@ createRepository() {
   _pushd "${TMPGHCREATEWORKDIR}"
   NEW_REPOSITORY_DESCRIPTION="Test repository for gitmux. If you find this lingering you may safely delete this repository."
   log "gh-cli is creating your new repository now!"
-  gh repo create "${_owner}/${_project}" ${_ghcreateopts:-} --license=unlicense --gitignore 'VVVV' --confirm --description "${NEW_REPOSITORY_DESCRIPTION}"
-  pushd "${_project}"
+  gh repo create "${_owner}/${_project}" ${_ghcreateopts:-} --license=unlicense --gitignore 'VVVV' --clone --description "${NEW_REPOSITORY_DESCRIPTION}"
+  _pushd "${_project}"
   log "renaming origin to hello"
   git remote rename origin hello
   pwd
 
   #_new_url=$(git remote get-url hello | sed -E "${REPO_REGEX}""/https\:\/\/${GH_TOKEN}\@\2\/\4\/\6/")
   _new_url=$(git remote get-url hello | sed -E "${REPO_REGEX}""/https\:\/\/git\:${GH_TOKEN}\@\2\/\4\/\6/")
-  log "new url: ${_new_url}"
+  log "new url: $(echo "${_new_url}" | sed "s/${GH_TOKEN}/[REDACTED]/g")"
   git remote set-url hello "${_new_url}"
 
   git commit --message 'Hello: this repository was created by gitmux.' --allow-empty
-  git remote --verbose show
+  # Mask token in verbose output
+  git remote --verbose show | sed "s/${GH_TOKEN}/[REDACTED]/g"
+  # Rename branch to trunk (gitmux convention) and push
+  git branch -m trunk
   log "pushing change to hello"
   git push hello "trunk:trunk"
+  # Set trunk as default branch on GitHub
+  gh repo edit "${_owner}/${_project}" --default-branch trunk
   pwd
   _popd && _popd
   pwd
