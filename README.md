@@ -1,66 +1,192 @@
-
 # gitmux
 
-### If you've ever thought 💭 "I wish this were a separate repo", you've come to the right place.
+**Sync repository subsets while preserving full git history.**
 
-The `gitmux.sh` script is provided to help sync changes (**including commit history**) _across_ repositories. 
-_
-The script can be used to create brand new git repositories from _any_ (_**or** all_) content within a chosen source git repository. It can also be used to update repositories previously "forked" by gitmux (or those git repositories forked in a more traditional manner).
+If you've ever thought "I wish this were a separate repo", you've come to the right place.
 
-You could also think of it as a tool for forking repositories, but with a twist: _you don't have to fork the entire repository_. Only the pieces/files you want.
+## Overview
 
-For assistance, email me `hi@stav.xyz` or submit an issue here.
+gitmux extracts files or directories from a source repository into a destination repository while maintaining complete commit history and tags. Unlike copy-paste, gitmux preserves the full provenance of your code.
 
-### Who is this for?
+### Key Features
 
-* Someone who wants to "fork" a subset of a larger repository into a new repository
-* Someone who wants to **update** a "fork" of a subset of a larger repository
-* Someone who wants to turn their github gist into a repository
-* Someone who previously "forked" (or copy/pasted) part of a larger repository and wants to do-it-over so that they get the commit history and tags
-* Someone who is quite well versed in git, and wants to explore the differences in the available rebase strategies (see help on the `-X` flag )
-* A robot that checks for updates of git repositories being mirrored, with the goal of submitting a pull-request to the downstream mirror with any updates available
+- **History Preservation** - Maintains complete commit history for synced content
+- **Selective Extraction** - Fork entire repos or just specific files/directories
+- **Safe by Design** - Changes go through pull requests, never direct pushes
+- **Repeatable** - Run multiple times to sync incremental updates
+- **Flexible Rebase** - Multiple strategies (ours/theirs/patience) for conflict resolution
 
-### Usage Notes
+## Installation
 
-* The recommended usage includes `-s`, which submits a pull request to your target repository with the resulting content. Although this is recommended, it is not the default, since it requires [`gh`](https://cli.github.com/) to be installed.
+### Prerequisites
 
-* The pull request mechanism allows for discrete modifications to be made in both the source and destination repositories. In other words, the sync performed by this script is one-way which _should_ allow for additional changes in both your source repository and destination repository over time.
+- Bash 4.0+
+- Git
+- [GitHub CLI (`gh`)](https://cli.github.com/) - for `-s`, `-c`, `-z` flags
+- jq
 
-* This script can be run many times for the same source and destination. For example, if you run this script for the first time on a Monday, and the **_source_** repository is updated on Wednesday, simply run this script again with the same arguments and it will generate a pull request with the latest updates from your _source_ repository.
+### Quick Install
 
-* If `-c` is used, the destination repository will be created if it does not yet exist. [Requires \`gh\` GitHub CLI.](https://cli.github.com/)
+```bash
+# Clone the repository
+git clone https://github.com/stavxyz/gitmux.git
+cd gitmux
 
-* If `-s` is used, the pull request will be automatically submitted to your destination branch. [Requires \`gh\` GitHub CLI.](https://cli.github.com/)
+# Make executable (if needed)
+chmod +x gitmux.sh
 
-* The script does not push updates to `master`, only to `update-from-${GIT_BRANCH}-${GIT_SHA}` where `GIT_BRANCH` is the source repository branch referenced (defaults to HEAD/master) and `GIT_SHA` is the equivalent commit hash for that branch. For this reason, you don't need to worry about this script modifying any branches except for the custom "feature branch" it creates for its own use on your remote.
+# Verify installation
+./gitmux.sh -h
+```
 
-* Changes make it into your destination repository's specified target branch ([default](https://help.github.com/en/articles/setting-the-default-branch) or `master` branch if not otherwise specified) through an auditable pull-request mechanism, and **are not** pushed to that branch directly by gitmux. If `-s` is not used or `gh` is not installed, you will need to merge the resulting changes from the gitmux feature branch into your destination branch manually.
- 
-* The _new_, or destination/target repository must have at least one commit (cannot be an empty repository) if you provide the repository path/url instead of having gitmux create it for you.
+### Docker
 
-### gitmux FAQ
+```bash
+# Build the image
+make build
 
-**1) Why doesnt this script push to my destination branch automatically?**
+# Run interactively
+make run
+```
 
-   That's dangerous. The best mechanism to view proposed changes is a
-   Pull Request so that is the mechanism used by this script. A unique
-   integration branch is created by this script in order to audit and
-   view proposed changes and the result of the filtered source repository.
+## Quick Start
 
-**2) This script always clones my source repo, can I just point to a local
-   directory containing a git repository as the source?**
+### Basic Sync (Full Repository)
 
-   Yes. Feel free to use a local path for the source repository. That will
-   make the syncing much faster, but to minimize the chance that you miss
-   updates made in your source repository, supplying a URL is more consistent.
+```bash
+./gitmux.sh \
+  -r https://github.com/source-owner/source-repo \
+  -t https://github.com/dest-owner/dest-repo \
+  -s  # Submit PR automatically
+```
 
- **3) I want to manage the rebase myself in order to cherry-pick specific chanages.
-    Is that possible?**
+### Extract a Subdirectory
 
-   Sure is. Just supply -i to the script and you will be given a \`cd\`
-   command that will allow you to drop into the temporary workspace.
-   From there, you can complete the interactive rebase and push your
-   changes to the remote named 'destination'. The distinction between
-   remote names in the workspace is very imporant. To double-check, use
-   `git remote --verbose show` inside the gitmux git workspace.
+```bash
+./gitmux.sh \
+  -r https://github.com/source-owner/monorepo \
+  -t https://github.com/dest-owner/extracted-lib \
+  -d packages/my-library \
+  -s
+```
 
+### Extract Specific Files
+
+```bash
+./gitmux.sh \
+  -r https://github.com/source-owner/source-repo \
+  -t https://github.com/dest-owner/dest-repo \
+  -l '--all -- src/utils.py src/helpers.py' \
+  -s
+```
+
+### Create Destination if Missing
+
+```bash
+./gitmux.sh \
+  -r https://github.com/source-owner/source-repo \
+  -t https://github.com/dest-owner/new-repo \
+  -c  # Create destination repo
+  -s
+```
+
+## Usage
+
+```
+gitmux.sh [-r SOURCE] [-t DESTINATION] [OPTIONS]
+
+Required:
+  -r <repository>     Source repository (URL or local path)
+  -t <repository>     Destination repository (URL or local path)
+
+Filtering:
+  -d <path>           Extract only this subdirectory
+  -l <rev-list>       Extract specific files (git rev-list format)
+  -g <gitref>         Source git ref (branch, tag, commit)
+
+Destination:
+  -p <path>           Place content at this path in destination
+  -b <branch>         Target branch in destination (default: trunk)
+  -c                  Create destination repo if it doesn't exist
+
+Rebase:
+  -X <strategy>       Rebase strategy: ours, theirs, patience (default: ours)
+  -o <options>        Custom git rebase options
+  -i                  Interactive rebase mode
+
+GitHub:
+  -s                  Submit PR automatically (requires gh)
+  -z <org/team>       Add team to destination repo (repeatable)
+
+Other:
+  -k                  Keep temp workspace (for debugging)
+  -v                  Verbose output
+  -h                  Show help
+```
+
+## How It Works
+
+1. **Clone** - gitmux clones the source repository to a temp workspace
+2. **Filter** - Uses `git filter-branch` to extract selected content
+3. **Rebase** - Rebases filtered history onto destination branch
+4. **Push** - Pushes to a feature branch (`update-from-<branch>-<sha>`)
+5. **PR** - Optionally creates a pull request via GitHub CLI
+6. **Cleanup** - Removes temp workspace
+
+```
+┌─────────────┐    filter-branch    ┌─────────────┐
+│   Source    │ ─────────────────▶  │   Filtered  │
+│ Repository  │                     │   Content   │
+└─────────────┘                     └──────┬──────┘
+                                           │
+                                      rebase onto
+                                           │
+                                           ▼
+┌─────────────┐    pull request     ┌─────────────┐
+│ Destination │ ◀───────────────── │   Feature   │
+│   Branch    │                     │   Branch    │
+└─────────────┘                     └─────────────┘
+```
+
+## Who Is This For?
+
+- **Monorepo extractors** - Fork a subset into a standalone repo
+- **Gist upgraders** - Turn a GitHub gist into a full repository
+- **History preservers** - Redo a copy-paste with proper git history
+- **Git power users** - Explore rebase strategies and conflict resolution
+- **Automation bots** - Keep downstream mirrors in sync via PRs
+
+## FAQ
+
+**Q: Why doesn't gitmux push directly to my destination branch?**
+
+A: That's dangerous. Pull requests provide an audit trail and allow review before merging. gitmux creates a unique feature branch for each sync.
+
+**Q: Can I use a local directory as the source?**
+
+A: Yes. Local paths are faster but using URLs ensures you don't miss upstream updates.
+
+**Q: Can I manage the rebase manually?**
+
+A: Yes! Use `-i` for interactive rebase. gitmux will give you a `cd` command to enter the workspace. Complete the rebase and push to the remote named `destination`.
+
+**Q: What if there are merge conflicts?**
+
+A: gitmux uses the rebase strategy specified by `-X` (default: `ours`). For complex conflicts, use `-i` for manual resolution.
+
+**Q: Can I run gitmux multiple times?**
+
+A: Yes. gitmux is designed for repeated runs. Each run creates a new PR with the latest changes from the source.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, testing, and PR guidelines.
+
+## License
+
+[Unlicense](LICENSE) - Public domain. Do whatever you want with this.
+
+## Contact
+
+- **Issues**: [GitHub Issues](https://github.com/stavxyz/gitmux/issues)
+- **Email**: hi@stav.xyz
