@@ -54,19 +54,44 @@ direnv allow  # If using direnv
 
 ## Running Tests
 
-### Shell Script Tests
+### Unit Tests (bats)
 
 ```bash
-# Run integration tests (requires GitHub credentials)
+# Run unit tests - no credentials required
+just test-bats
+bats tests/
+```
+
+### Integration Tests
+
+Integration tests create and delete real GitHub repositories to test the full workflow.
+
+**Requirements:**
+- `GH_TOKEN` environment variable with a personal access token
+- Token needs `repo` and `delete_repo` scopes
+
+```bash
+# Set up your token
+export GH_TOKEN="ghp_your_token_here"
+
+# Run integration tests
 just test-shell
 
 # Or directly:
 ./test_gitmux.sh
-
-# Run unit tests (bats)
-just test-bats
-bats tests/
 ```
+
+**Creating a Personal Access Token:**
+1. Go to [GitHub Settings > Developer settings > Personal access tokens](https://github.com/settings/tokens)
+2. Click "Generate new token (classic)"
+3. Select scopes: `repo` (full control) and `delete_repo`
+4. Copy the token and set it as `GH_TOKEN`
+
+**CI Integration Tests:**
+Integration tests run weekly in CI via the `integration-tests.yml` workflow. To enable:
+1. Go to repository Settings > Secrets and variables > Actions
+2. Add a secret named `GH_TOKEN` with a personal access token
+3. The workflow runs automatically on Monday 6:00 UTC, or trigger manually
 
 ### All Quality Checks
 
