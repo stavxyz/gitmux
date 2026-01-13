@@ -324,7 +324,7 @@ test_defaults_destination_dne_yet_only_wat() {
   if output=$(cat wat.md) && [ "${output}" == "## wat" ];then
     echo "${output}" && echo "✅ Success"
     # reset
-    git branches
+    git branch
     git checkout destination_current_branch
   else
     errcleanup
@@ -359,7 +359,7 @@ test_defaults_destination_dne_yet_only_toto() {
       _tree=$(_tree_func); then
     echo "${_tree}" && echo "✅ Success"
     # reset
-    git branches
+    git branch
     git checkout destination_current_branch
   else
     errcleanup
