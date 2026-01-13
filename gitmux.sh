@@ -60,6 +60,10 @@
 # Undefined variables are errors.
 set -euoE pipefail
 
+# Enable extended globbing for patterns like !(pattern)
+# Must be enabled at parse time for extglob patterns to work
+shopt -s extglob
+
 # Print message to stderr.
 # Arguments:
 #   $@ - Message(s) to print
@@ -378,8 +382,9 @@ fi
 
 # Remove trailing .git if present
 source_url="${source_url/%\.git/''}"
-# the 2nd sed here is to parse out user:<token> notations just in case
-source_domain=$(echo "${source_url}" | sed -E "${REPO_REGEX}"'/\2/' | sed -E "s/(^[a-zA-Z0-9_-]{0,38}\:{1})([a-zA-Z0-9_]{5,40})(\@?)"'//')
+# the 2nd sed here is to parse out user:<token>@ notations from the domain
+# Matches username:token@ where token can be up to 200 chars (fine-grained PATs are long)
+source_domain=$(echo "${source_url}" | sed -E "${REPO_REGEX}"'/\2/' | sed -E "s/^[a-zA-Z0-9_-]+:[a-zA-Z0-9_]+@//")
 source_project=$(echo "${source_url}" | sed -E "${REPO_REGEX}"'/\6/')
 source_owner=$(echo "${source_url}" | sed -E "${REPO_REGEX}"'/\4/')
 source_uri="${source_owner}/${source_project}"
@@ -405,8 +410,9 @@ fi
 
 # Remove trailing .git if present
 destination_url="${destination_url/%\.git/''}"
-# the 2nd sed here is to parse out user:<token> notations just in case
-destination_domain=$(echo "${destination_url}" | sed -E "${REPO_REGEX}"'/\2/' | sed -E "s/(^[a-zA-Z0-9_-]{0,38}\:{1})([a-zA-Z0-9_]{5,40})(\@?)"'//')
+# the 2nd sed here is to parse out user:<token>@ notations from the domain
+# Matches username:token@ where token can be up to 200 chars (fine-grained PATs are long)
+destination_domain=$(echo "${destination_url}" | sed -E "${REPO_REGEX}"'/\2/' | sed -E "s/^[a-zA-Z0-9_-]+:[a-zA-Z0-9_]+@//")
 destination_project=$(echo "${destination_url}" | sed -E "${REPO_REGEX}"'/\6/')
 destination_owner=$(echo "${destination_url}" | sed -E "${REPO_REGEX}"'/\4/')
 destination_uri="${destination_owner}/${destination_project}"
@@ -505,14 +511,11 @@ if [[ -n "$destination_path" ]] && ! [[ "${destination_path}" == '/' ]]; then
     # First create a random file in case the directory is empty
     # For some odd reason. (Delete afterward)
     _rname="$(echo $RANDOM$RANDOM | tr '0-9' '[:lower:]').txt"
-    echo "Created by gitmux. Serves two puposes, one of which is acting like a .gitkeep and the other has to do with shopt -s extglob. Delete me." > "${_rname}"
+    echo "Created by gitmux. Serves as a .gitkeep in case the directory is empty. Delete me." > "${_rname}"
     git add --force --intent-to-add "${_rname}"
-    shopt -s extglob
     # Move everything except __tmp__ into __tmp__
-    # Everything except __tmp__ is -->  $(echo !(__tmp__))"
     # shellcheck disable=SC2046
     git mv $(echo !(__tmp__)) __tmp__
-    shopt -u extglob
     mkdir -p "${destination_path}"
     git mv __tmp__/* "${destination_path}/"
     # Trying to ensure we get all the commit history...
@@ -596,9 +599,17 @@ if ! _repo_existence="$(git fetch destination 2>&1)"; then
     # Note: If you want to move the --orphan bits below, remove --bare from the next line.
     _pushd "${TMPGHCREATEWORKDIR}"
     # TODO: Make --private possible
-    gh repo create "${destination_owner}/${destination_project}" --public --license=unlicense --gitignore 'VVVV' --confirm --description "${NEW_REPOSITORY_DESCRIPTION}"
+    gh repo create "${destination_owner}/${destination_project}" --public --license=unlicense --gitignore 'VVVV' --clone --description "${NEW_REPOSITORY_DESCRIPTION}"
     _pushd "${destination_project}"
     git remote --verbose show
+    # Rename default branch to trunk (gitmux convention) if needed
+    _current_branch=$(git branch --show-current)
+    if [[ "${_current_branch}" != "${destination_branch}" ]]; then
+      log "Renaming branch ${_current_branch} to ${destination_branch}"
+      git branch -m "${destination_branch}"
+      git push origin "${destination_branch}:${destination_branch}"
+      gh repo edit "${destination_owner}/${destination_project}" --default-branch "${destination_branch}"
+    fi
     _popd && _popd
     log "cleaning up gh-create workdir"
     rm -rf "${TMPGHCREATEWORKDIR}"
