@@ -114,7 +114,7 @@ createRepository() {
 
   #_new_url=$(git remote get-url hello | sed -E "${REPO_REGEX}""/https\:\/\/${GH_TOKEN}\@\2\/\4\/\6/")
   _new_url=$(git remote get-url hello | sed -E "${REPO_REGEX}""/https\:\/\/git\:${GH_TOKEN}\@\2\/\4\/\6/")
-  log "new url: $(echo "${_new_url}" | sed "s/${GH_TOKEN}/[REDACTED]/g")"
+  log "new url: ${_new_url//${GH_TOKEN}/[REDACTED]}"
   git remote set-url hello "${_new_url}"
 
   git commit --message 'Hello: this repository was created by gitmux.' --allow-empty
