@@ -39,7 +39,7 @@ just setup
 # Or manually:
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -e ".[dev]"
+pip install -r .github/workflows/requirements-quality.txt
 ```
 
 ### Environment Configuration
