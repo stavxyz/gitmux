@@ -18,7 +18,7 @@ httpx==0.28.1
 
 # Security: Pin filelock to fix CVE-2025-68146
 # Advisory: https://github.com/advisories/GHSA-w853-jp5j-5j7f
-filelock==3.20.2
+filelock==3.20.3
 
 # Security scanning tools
 pip-audit==2.7.3
