@@ -109,16 +109,26 @@ format:
         echo "ruff not installed, skipping formatting"
     fi
 
-# Run type checker
+# Run type checker on Python files
 typecheck:
     #!/usr/bin/env bash
     set -euo pipefail
     source .venv/bin/activate 2>/dev/null || true
+
+    # Find Python files to check
+    py_files=$(find . -name "*.py" -not -path "./.venv/*" 2>/dev/null || echo "")
+    if [[ -z "$py_files" ]]; then
+        echo "No Python files to typecheck"
+        exit 0
+    fi
+
     if command -v mypy &>/dev/null; then
-        echo "Running mypy..."
-        mypy . --ignore-missing-imports || true
+        echo "Running mypy on Python files..."
+        echo "$py_files" | head -5
+        mypy --ignore-missing-imports $py_files
     else
         echo "mypy not installed, skipping type checking"
+        echo "Install with: pip install mypy"
     fi
 
 # ============================================================================
