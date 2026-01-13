@@ -60,11 +60,17 @@
 # Undefined variables are errors.
 set -euoE pipefail
 
+# Print message to stderr.
+# Arguments:
+#   $@ - Message(s) to print
 errcho ()
 {
     printf "%s\n" "$@" 1>&2
 }
 
+# Print error message and exit with cleanup.
+# Arguments:
+#   $@ - Error message(s) to print
 errxit ()
 {
   errcho "$@"
@@ -72,24 +78,38 @@ errxit ()
   errcleanup
 }
 
+# Change to directory without printing output.
+# Arguments:
+#   $@ - Arguments to pass to pushd
 _pushd () {
     command pushd "$@" > /dev/null
 }
 
+# Return to previous directory without printing output.
 _popd () {
     command popd > /dev/null
 }
 
+# Get absolute path of file/directory (cross-platform).
+# Arguments:
+#   $@ - Path(s) to resolve
+# Returns:
+#   Absolute path to stdout
 _realpath () {
     if _cmd_exists realpath; then
-      realpath $@
+      realpath "$@"
       return $?
     else
-      readlink -f $@
+      readlink -f "$@"
       return $?
     fi
 }
 
+# Check if a command exists on the system.
+# Arguments:
+#   $* - Command name to check
+# Returns:
+#   0 if command exists, 1 otherwise
 _cmd_exists () {
   if ! type "$*" &> /dev/null; then
     errcho "$* command not installed"
@@ -97,6 +117,8 @@ _cmd_exists () {
   fi
 }
 
+# Clean up temporary workspace.
+# Removes the temp directory unless KEEP_TMP_WORKSPACE is true.
 cleanup() {
   if [[ -d ${gitmux_TMP_WORKSPACE:-} ]]; then
     # shellcheck disable=SC2086
@@ -112,6 +134,9 @@ cleanup() {
   fi
 }
 
+# Handle error conditions: print error message, clean up, and exit.
+# Arguments:
+#   $1 - (optional) Line number where error occurred
 # shellcheck disable=SC2120
 errcleanup() {
   errcho "⛔️ gitmux execution failed."
@@ -122,6 +147,8 @@ errcleanup() {
   exit 1
 }
 
+# Handle interrupt signals (SIGHUP, SIGINT, SIGTERM).
+# Cleans up and exits gracefully.
 intcleanup() {
   errcho "🍿 Script discontinued."
   cleanup
@@ -131,6 +158,18 @@ intcleanup() {
 trap 'errcleanup ${LINENO}' ERR
 trap 'intcleanup' SIGHUP SIGINT SIGTERM
 
+#
+# Early validation: check for required commands
+#
+if ! command -v git &> /dev/null; then
+  errcho "Error: git is required but not installed."
+  exit 1
+fi
+
+if ! command -v jq &> /dev/null; then
+  errcho "Error: jq is required but not installed."
+  exit 1
+fi
 
 # Reset in case getopts has been used previously in the shell.
 OPTIND=1
@@ -163,16 +202,25 @@ destination_branch="${DESTINATION_BRANCH}"
 rev_list_files="${REV_LIST_FILES}"
 _verbose=0
 
+# Remove leading and trailing slashes from a path.
+# Arguments:
+#   $@ - Path string to process
+# Returns:
+#   Cleaned path to stdout
 function stripslashes () {
   echo "$@" | sed 's:/*$::' | sed 's:^/*::'
 }
 
+# Print log message if verbose mode is enabled.
+# Arguments:
+#   $@ - Message(s) to print
 function log () {
   if [[ $_verbose -eq 1 ]]; then
     printf "%s\n" "$@"
   fi
 }
 
+# Display usage information and available options.
 function show_help()
 {
   # shellcheck disable=SC1111
@@ -264,6 +312,13 @@ if [ ${#GITHUB_TEAMS[@]} -gt 0 ]; then
       errxit "team format should be <org>/<team>"
     fi
   done
+fi
+
+# Validate gh is available when -c flag is used
+if [[ "${CREATE_NEW_REPOSITORY}" == "true" ]]; then
+  if ! command -v gh &> /dev/null; then
+    errxit "Error: -c flag requires gh (GitHub CLI) but it's not installed. Install from: https://cli.github.com/"
+  fi
 fi
 
 #
@@ -498,6 +553,7 @@ log "git filter-branch --tag-name-filter cat ${_subdirectory_filter_options:-} [
 export FILTER_BRANCH_SQUELCH_WARNING=1
 if [ -n "${rev_list_files}" ]; then
   log "Targeting paths/revisions: ${rev_list_files}"
+  # shellcheck disable=SC2086  # Word splitting is intentional for filter options
   git filter-branch --tag-name-filter cat ${_subdirectory_filter_options} \
     --index-filter "
     git read-tree --empty
@@ -505,6 +561,7 @@ if [ -n "${rev_list_files}" ]; then
    " \
    -- --all -- ${rev_list_files}
 else
+  # shellcheck disable=SC2086  # Word splitting is intentional for filter options
   git filter-branch --tag-name-filter cat ${_subdirectory_filter_options}
 fi
 
@@ -593,6 +650,10 @@ fi
 #    as a sync/update rather than an initial repo-ectomy, we _probably_ want 'theirs'.
 
 MAX_RETRIES=50
+
+# Rebase filtered content onto destination branch.
+# Handles interactive rebase, automatic conflict resolution, and retry logic.
+# Uses REBASE_OPTIONS global variable for rebase strategy.
 perform_rebase () {
  git config --worktree merge.renameLimit 999999999
  log "Rebase options --> ' ${REBASE_OPTIONS} '"
@@ -605,7 +666,7 @@ perform_rebase () {
     echo "Navigate to the temp workspace at ${_WORKSPACE} to complete the workflow."
     echo "cd ${_WORKSPACE}"
   elif ! output="$(git rebase ${REBASE_OPTIONS} "destination/${destination_branch}" 2>&1)"; then
-    # I only undestood this block long enough to write it.
+    # Handle rebase failures: check for common error patterns and attempt recovery
     if [[ "${output}" =~ "invalid upstream" ]]; then
       errcho "${output}"
       errxit "Invalid upstream. Does '${destination_branch}' exist in '${destination_repository}'?"
@@ -663,6 +724,12 @@ perform_rebase
 # GitHub API functions
 #
 
+# Get GitHub team ID by organization and team name.
+# Arguments:
+#   $1 - Organization name
+#   $2 - Team slug/name
+# Returns:
+#   Team ID to stdout
 function get_team_id() {
   local _org_name="${1}"
   local _team_name="${2}"
@@ -670,6 +737,12 @@ function get_team_id() {
   gh api "orgs/${_org_name}/teams/${_team_name}" --method GET | jq --exit-status -r '.id'
 }
 
+# Add a GitHub team to a repository with specified permissions.
+# Arguments:
+#   $1 - Team ID
+#   $2 - Repository owner
+#   $3 - Repository name
+#   $4 - Permission level (pull, push, admin). Default: admin
 function add_team_to_repository() {
   local _team_id="${1}"
   local _owner="${2}"
