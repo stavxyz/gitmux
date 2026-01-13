@@ -1,1 +1,7 @@
 .envrc
+
+# Claude Code - runtime/temporary files
+.claude/settings.local.json
+.claude/state/
+.claude/logs/
+.claude/.backup/
