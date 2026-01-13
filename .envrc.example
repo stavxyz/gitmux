@@ -1,0 +1,43 @@
+# .envrc - direnv configuration for this project
+# Copy this file to .envrc and customize for your environment
+# direnv automatically loads these variables, which Claude Code will then see
+#
+# CRITICAL: This file (.envrc) is in .gitignore for a reason!
+# NEVER commit .envrc to version control, even if you think it contains no secrets.
+
+# Python virtual environment
+# Uncomment if you want direnv to automatically activate your venv
+# layout python python3
+
+# Claude Code Model Configuration
+# The project default is "opus" (Claude Opus 4.5 for all operations)
+# Uncomment one of these to override the default model for your local environment:
+#
+# export ANTHROPIC_MODEL="opus"        # Opus 4.5 for all operations (default, maximum quality)
+# export ANTHROPIC_MODEL="opusplan"    # Hybrid: Opus for planning, Sonnet for execution (balanced)
+# export ANTHROPIC_MODEL="sonnet"      # Sonnet 4.5 for all operations (faster, cost-effective)
+# export ANTHROPIC_MODEL="haiku"       # Haiku for simple tasks (fastest, most economical)
+#
+# Note: Default is Opus for maximum quality. Override only if speed/cost is a concern.
+# You can also use /model <name> in a Claude Code session to switch models temporarily
+
+# Example: Project-specific environment variables
+# export PROJECT_NAME="persuade"
+# export LOG_LEVEL="INFO"
+
+# Example: API-related *non-secret* configuration
+# WARNING: Do NOT export real API keys here - .envrc is loaded into your environment
+#          and may be exposed in logs, process listings, or command output.
+#          Use a secrets manager or carefully scoped mechanism for actual secrets.
+# export ANTHROPIC_API_BASE_URL="https://api.anthropic.com"
+
+# Example: Development settings
+# export DEBUG="true"
+# export PYTEST_TIMEOUT="300"
+
+# Example: Tool-specific configuration
+# export RUFF_CACHE_DIR="${PWD}/.ruff_cache"
+# export MYPY_CACHE_DIR="${PWD}/.mypy_cache"
+
+# Note: direnv sources this file when you cd into the project
+# Keep it fast - avoid slow operations in .envrc that would slow down directory changes
