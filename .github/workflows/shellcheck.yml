@@ -97,20 +97,14 @@ jobs:
           echo ""
 
           # Run shellcheck on each script individually for better output
-          # This way we see each file being processed
           FAILED=0
-          # Use process substitution to avoid subshell variable scope issue
           while read -r script; do
             echo "Checking: $script"
-            # Use --shell=bash for .bats files (bats test files are bash scripts)
-            if [[ "$script" == *.bats ]]; then
-              if ! shellcheck --shell=bash --color=always "$script"; then
-                FAILED=1
-              fi
-            else
-              if ! shellcheck --color=always "$script"; then
-                FAILED=1
-              fi
+            # Use --shell=bash for .bats files (bats uses bash syntax)
+            shell_opt=$([[ "$script" == *.bats ]] && echo "--shell=bash" || echo "")
+            # shellcheck disable=SC2086  # shell_opt intentionally unquoted
+            if ! shellcheck $shell_opt --color=always "$script"; then
+              FAILED=1
             fi
           done < <(echo "$SCRIPTS")
 
