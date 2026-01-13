@@ -1,4 +1,4 @@
-name: ShellCheck
+name: Shell Scripts
 
 on:
   push:
@@ -23,6 +23,8 @@ jobs:
         with:
           filters: |
             shell:
+              - '*.sh'
+              - 'tests/**/*.bats'
               - '.claude/**/*.sh'
               - '.claude/git-hooks/**'
               - '.github/workflows/shellcheck.yml'
@@ -30,7 +32,7 @@ jobs:
   shellcheck:
     needs: filter-paths
     if: needs.filter-paths.outputs.shell_changed == 'true'
-    name: ShellCheck Bash Scripts
+    name: ShellCheck
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -50,9 +52,11 @@ jobs:
       - name: Find bash scripts
         id: find-scripts
         run: |
-          # Find all .sh files and git-hooks (which are bash scripts without extension)
+          # Find all .sh files in root and .claude directory, plus git-hooks
           # Exclude README.md and other markdown files
-          SCRIPTS=$(find .claude -type f \( -name "*.sh" -o -path ".claude/git-hooks/*" \) ! -name "*.md" 2>/dev/null || echo "")
+          ROOT_SCRIPTS=$(find . -maxdepth 1 -name "*.sh" -type f 2>/dev/null || echo "")
+          CLAUDE_SCRIPTS=$(find .claude -type f \( -name "*.sh" -o -path ".claude/git-hooks/*" \) ! -name "*.md" 2>/dev/null || echo "")
+          SCRIPTS=$(echo -e "${ROOT_SCRIPTS}\n${CLAUDE_SCRIPTS}" | grep -v '^$' | sort -u)
 
           if [ -z "$SCRIPTS" ]; then
             echo "No bash scripts found"
@@ -202,4 +206,33 @@ jobs:
             echo "   But ensure install scripts set +x correctly"
           else
             echo "✅ All hook scripts are executable"
+          fi
+
+  bats-tests:
+    needs: filter-paths
+    if: needs.filter-paths.outputs.shell_changed == 'true'
+    name: Bats Unit Tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install bats-core
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bats
+
+      - name: Verify bats installation
+        run: bats --version
+
+      - name: Run bats tests
+        run: |
+          if [ -d tests ] && ls tests/*.bats 1>/dev/null 2>&1; then
+            echo "Running bats unit tests..."
+            bats tests/*.bats
+          else
+            echo "No bats tests found in tests/"
           fi
