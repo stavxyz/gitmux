@@ -82,7 +82,7 @@ lint-shell:
     shellcheck gitmux.sh
     shellcheck test_gitmux.sh
     if ls tests/*.bats 1>/dev/null 2>&1; then
-        shellcheck tests/*.bats
+        shellcheck --shell=bash tests/*.bats
     fi
 
 # Run ruff linter on Python files

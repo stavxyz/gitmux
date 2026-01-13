@@ -102,8 +102,15 @@ jobs:
           # Use process substitution to avoid subshell variable scope issue
           while read -r script; do
             echo "Checking: $script"
-            if ! shellcheck --color=always "$script"; then
-              FAILED=1
+            # Use --shell=bash for .bats files (bats test files are bash scripts)
+            if [[ "$script" == *.bats ]]; then
+              if ! shellcheck --shell=bash --color=always "$script"; then
+                FAILED=1
+              fi
+            else
+              if ! shellcheck --color=always "$script"; then
+                FAILED=1
+              fi
             fi
           done < <(echo "$SCRIPTS")
 
