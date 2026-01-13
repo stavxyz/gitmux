@@ -68,17 +68,6 @@ just test-bats
 bats tests/
 ```
 
-### Python Tests (if applicable)
-
-```bash
-# Run all Python tests
-just test-python
-pytest tests/ -v
-
-# With coverage
-pytest tests/ --cov=src --cov-report=term-missing
-```
-
 ### All Quality Checks
 
 ```bash
