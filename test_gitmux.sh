@@ -107,7 +107,7 @@ createRepository() {
   NEW_REPOSITORY_DESCRIPTION="Test repository for gitmux. If you find this lingering you may safely delete this repository."
   log "gh-cli is creating your new repository now!"
   gh repo create "${_owner}/${_project}" ${_ghcreateopts:-} --license=unlicense --gitignore 'VVVV' --confirm --description "${NEW_REPOSITORY_DESCRIPTION}"
-  pushd ${_project}
+  pushd "${_project}"
   log "renaming origin to hello"
   git remote rename origin hello
   pwd
@@ -115,7 +115,7 @@ createRepository() {
   #_new_url=$(git remote get-url hello | sed -E "${REPO_REGEX}""/https\:\/\/${GH_TOKEN}\@\2\/\4\/\6/")
   _new_url=$(git remote get-url hello | sed -E "${REPO_REGEX}""/https\:\/\/git\:${GH_TOKEN}\@\2\/\4\/\6/")
   log "new url: ${_new_url}"
-  git remote set-url hello ${_new_url}
+  git remote set-url hello "${_new_url}"
 
   git commit --message 'Hello: this repository was created by gitmux.' --allow-empty
   git remote --verbose show
