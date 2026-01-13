@@ -1,0 +1,121 @@
+name: Documentation Issue
+description: Report missing, incorrect, or unclear documentation
+title: "[Docs]: "
+labels: ["documentation", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve our documentation! Please provide details below.
+
+  - type: dropdown
+    id: doc-type
+    attributes:
+      label: Documentation Type
+      description: What type of documentation is affected?
+      options:
+        - README.md
+        - API Documentation
+        - Architecture Documentation
+        - User Guide
+        - Code Comments/Docstrings
+        - Examples
+        - CHANGELOG
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: issue-type
+    attributes:
+      label: Issue Type
+      description: What kind of documentation issue is this?
+      options:
+        - Missing Documentation
+        - Incorrect/Outdated Documentation
+        - Unclear/Confusing Documentation
+        - Typo/Formatting Issue
+        - Missing Examples
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: current-state
+    attributes:
+      label: Current State
+      description: What is the current state of the documentation? (Include file path/URL if known)
+      placeholder: |
+        File: docs/api.md
+        Section: "Authentication"
+        Currently says: ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-state
+    attributes:
+      label: Expected State
+      description: What should the documentation say or include?
+      placeholder: The documentation should explain...
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: affected-users
+    attributes:
+      label: Who is Affected?
+      description: Who needs this documentation?
+      options:
+        - label: New developers/contributors
+        - label: Experienced developers
+        - label: End users
+        - label: AI assistants (Claude, etc.)
+        - label: API consumers
+        - label: Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      description: How important is this documentation issue?
+      options:
+        - Critical (blocks development/usage)
+        - High (causes significant confusion)
+        - Medium (improvement needed)
+        - Low (nice to have)
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: How did you discover this issue? What were you trying to do?
+      placeholder: I was trying to... and couldn't find documentation about...
+    validations:
+      required: false
+
+  - type: textarea
+    id: proposed-fix
+    attributes:
+      label: Proposed Fix
+      description: If you have suggestions for how to fix this, please share them
+      placeholder: |
+        I suggest adding a section that explains...
+        Example:
+        ```markdown
+        ## New Section
+        Content...
+        ```
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: Any other information, links, or examples
+      placeholder: Add any additional details...
