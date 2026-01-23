@@ -280,12 +280,18 @@ teardown() {
 @test "validation: invalid --coauthor-action value fails" {
     run bash -c "cd '$BATS_TEST_DIRNAME/..' && ./gitmux.sh --coauthor-action invalid -r foo -t bar 2>&1"
     [[ "$status" -ne 0 ]]
-    [[ "$output" =~ "--coauthor-action must be 'remove' or 'keep'" ]]
+    [[ "$output" =~ "--coauthor-action must be 'claude', 'all', or 'keep'" ]]
 }
 
-@test "validation: --coauthor-action 'remove' is valid" {
+@test "validation: --coauthor-action 'claude' is valid" {
     # This should fail later (no actual repo), but not on coauthor-action validation
-    run bash -c "cd '$BATS_TEST_DIRNAME/..' && ./gitmux.sh --coauthor-action remove -r foo -t bar 2>&1"
+    run bash -c "cd '$BATS_TEST_DIRNAME/..' && ./gitmux.sh --coauthor-action claude -r foo -t bar 2>&1"
+    [[ ! "$output" =~ "--coauthor-action must be" ]]
+}
+
+@test "validation: --coauthor-action 'all' is valid" {
+    # This should fail later (no actual repo), but not on coauthor-action validation
+    run bash -c "cd '$BATS_TEST_DIRNAME/..' && ./gitmux.sh --coauthor-action all -r foo -t bar 2>&1"
     [[ ! "$output" =~ "--coauthor-action must be" ]]
 }
 
