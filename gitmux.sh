@@ -674,8 +674,9 @@ if [[ "$GITMUX_COAUTHOR_ACTION" == "claude" ]]; then
   log "Claude/Anthropic attribution will be removed from commit messages (human co-authors preserved)"
 elif [[ "$GITMUX_COAUTHOR_ACTION" == "all" ]]; then
   # Remove ALL Co-authored-by lines and Generated-with signatures
+  # Note: No ^ anchor - trailers may have leading whitespace (consistent with claude mode)
   _msg_filter_script='sed -E \
-    -e "/^[Cc]o-[Aa]uthored-[Bb]y:/d" \
+    -e "/[Cc]o-[Aa]uthored-[Bb]y:/d" \
     -e "/[Gg]enerated with/d"'
   log "All Co-authored-by trailers and Generated-with lines will be removed from commit messages"
 fi
@@ -789,7 +790,7 @@ if [[ "${DRY_RUN}" == "true" ]]; then
 
   # Cleanup and exit
   cd / || true
-  rm -rf "${TMP_WORKSPACE}"
+  rm -rf "${gitmux_TMP_WORKSPACE}"
   exit 0
 fi
 
@@ -806,7 +807,8 @@ fi
 
 if [ -n "${rev_list_files}" ]; then
   log "Targeting paths/revisions: ${rev_list_files}"
-  # shellcheck disable=SC2086  # Word splitting is intentional for filter options
+  # shellcheck disable=SC2086  # Word splitting is intentional: _subdirectory_filter_options
+  # and rev_list_files contain multiple space-separated arguments that must expand separately
   _filter_branch_cmd="${_filter_branch_cmd} ${_subdirectory_filter_options} --index-filter \"
     git read-tree --empty
     git reset \\\$GIT_COMMIT -- ${rev_list_files}
@@ -814,7 +816,8 @@ if [ -n "${rev_list_files}" ]; then
   log "Running: ${_filter_branch_cmd}"
   eval "${_filter_branch_cmd}"
 else
-  # shellcheck disable=SC2086  # Word splitting is intentional for filter options
+  # shellcheck disable=SC2086  # Word splitting is intentional: _subdirectory_filter_options
+  # contains multiple space-separated arguments (e.g., "--subdirectory-filter path")
   _filter_branch_cmd="${_filter_branch_cmd} ${_subdirectory_filter_options}"
   log "Running: ${_filter_branch_cmd}"
   eval "${_filter_branch_cmd}"
