@@ -1,4 +1,4 @@
-name: Shell Scripts
+name: CI
 
 on:
   push:
@@ -25,9 +25,7 @@ jobs:
             shell:
               - '*.sh'
               - 'tests/**/*.bats'
-              - '.claude/**/*.sh'
-              - '.claude/git-hooks/**'
-              - '.github/workflows/shellcheck.yml'
+              - '.github/workflows/ci.yml'
 
   shellcheck:
     needs: filter-paths
@@ -52,11 +50,8 @@ jobs:
       - name: Find bash scripts
         id: find-scripts
         run: |
-          # Find all .sh files in root and .claude directory, plus git-hooks
-          # Exclude README.md and other markdown files
-          ROOT_SCRIPTS=$(find . -maxdepth 1 -name "*.sh" -type f 2>/dev/null || echo "")
-          CLAUDE_SCRIPTS=$(find .claude -type f \( -name "*.sh" -o -path ".claude/git-hooks/*" \) ! -name "*.md" 2>/dev/null || echo "")
-          SCRIPTS=$(echo -e "${ROOT_SCRIPTS}\n${CLAUDE_SCRIPTS}" | grep -v '^$' | sort -u)
+          # Find all .sh files in root directory
+          SCRIPTS=$(find . -maxdepth 1 -name "*.sh" -type f 2>/dev/null | sort -u || echo "")
 
           if [ -z "$SCRIPTS" ]; then
             echo "No bash scripts found"
@@ -179,40 +174,8 @@ jobs:
 
           echo "✅ No global ShellCheck disables found"
 
-      - name: Verify script executability
-        run: |
-          echo "Checking script executability..."
-
-          # Check that scripts in hooks/ and git-hooks/ are executable
-          HOOK_SCRIPTS=$(find .claude/hooks .claude/git-hooks -type f 2>/dev/null || echo "")
-
-          if [ -z "$HOOK_SCRIPTS" ]; then
-            echo "No hook scripts to check"
-            exit 0
-          fi
-
-          NON_EXECUTABLE=""
-          # Use process substitution to avoid subshell variable scope issue
-          while read -r script; do
-            if [ ! -x "$script" ]; then
-              echo "⚠️ Not executable: $script"
-              NON_EXECUTABLE="$NON_EXECUTABLE $script"
-            fi
-          done < <(echo "$HOOK_SCRIPTS")
-
-          if [ -n "$NON_EXECUTABLE" ]; then
-            echo ""
-            echo "ℹ️ Some hook scripts are not executable"
-            echo "   This is OK if they're installed by a script"
-            echo "   But ensure install scripts set +x correctly"
-          else
-            echo "✅ All hook scripts are executable"
-          fi
-
   bats-tests:
-    needs: filter-paths
-    if: needs.filter-paths.outputs.shell_changed == 'true'
-    name: Bats Unit Tests
+    name: Bats Tests
     runs-on: ubuntu-latest
     permissions:
       contents: read
