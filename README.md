@@ -143,6 +143,7 @@ Author/Committer Override:
                       - claude: Remove Claude/Anthropic attribution only (default when overriding)
                       - all: Remove all Co-authored-by trailers
                       - keep: Preserve all trailers (default otherwise)
+  --dry-run           Preview changes without modifying anything
 
 Other:
   -k                  Keep temp workspace (for debugging)
