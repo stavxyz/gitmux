@@ -324,21 +324,25 @@ setup_local_repos() {
     # Create temp directory for test repos
     export E2E_TEST_DIR=$(mktemp -d)
 
-    # Create source repo with bare remote
+    # Create source repo with bare remote (use -b main for consistent branch naming)
     mkdir -p "$E2E_TEST_DIR/source-bare.git"
-    git init --bare "$E2E_TEST_DIR/source-bare.git"
+    git init --bare --initial-branch=main "$E2E_TEST_DIR/source-bare.git"
     git clone "$E2E_TEST_DIR/source-bare.git" "$E2E_TEST_DIR/source"
     cd "$E2E_TEST_DIR/source"
     git config user.name "Original Author"
     git config user.email "original@example.com"
+    # Ensure we're on main branch (git clone of empty repo may not set this)
+    git checkout -b main 2>/dev/null || git checkout main 2>/dev/null || true
 
-    # Create destination repo with bare remote
+    # Create destination repo with bare remote (use -b main for consistent branch naming)
     mkdir -p "$E2E_TEST_DIR/dest-bare.git"
-    git init --bare "$E2E_TEST_DIR/dest-bare.git"
+    git init --bare --initial-branch=main "$E2E_TEST_DIR/dest-bare.git"
     git clone "$E2E_TEST_DIR/dest-bare.git" "$E2E_TEST_DIR/dest"
     cd "$E2E_TEST_DIR/dest"
     git config user.name "Dest User"
     git config user.email "dest@example.com"
+    # Ensure we're on main branch (git clone of empty repo may not set this)
+    git checkout -b main 2>/dev/null || git checkout main 2>/dev/null || true
     echo "init" > README.md
     git add .
     git commit -m "Initial commit"
