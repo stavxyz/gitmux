@@ -249,7 +249,7 @@ function show_help()
 {
   # shellcheck disable=SC1111
   cat << EOF
-  Usage: ${0##*/} [-r SOURCE_REPOSITORY] [-d SUBDIRECTORY_FILTER] [-g GITREF] [-t DESTINATION_REPOSITORY] [-p DESTINATION_PATH] [-b DESTINATION_BRANCH] [-X REBASE_STRATEGY_OPTION | -o REBASE_OPTIONS] [-z GITHUB_TEAM -z ...] [--author-name NAME --author-email EMAIL] [--committer-name NAME --committer-email EMAIL] [--coauthor-action remove|keep] [-i] [-s] [-c] [-k] [-v] [-h]
+  Usage: ${0##*/} [-r SOURCE_REPOSITORY] [-d SUBDIRECTORY_FILTER] [-g GITREF] [-t DESTINATION_REPOSITORY] [-p DESTINATION_PATH] [-b DESTINATION_BRANCH] [-X REBASE_STRATEGY_OPTION | -o REBASE_OPTIONS] [-z GITHUB_TEAM -z ...] [--author-name NAME --author-email EMAIL] [--committer-name NAME --committer-email EMAIL] [--coauthor-action claude|all|keep] [-i] [-s] [-c] [-k] [-v] [-h]
   “The life of a repo man is always intense.”
   -r <repository>              Path/url to the [remote] source repository. Required.
   -t <destination_repository>  Path/url to the [remote] destination repository. Required.
@@ -268,7 +268,12 @@ function show_help()
   --author-email <email>       Override author email for all transferred commits. Requires --author-name. Can also be set via GITMUX_AUTHOR_EMAIL environment variable.
   --committer-name <name>      Override committer name for all transferred commits. Requires --committer-email. Can also be set via GITMUX_COMMITTER_NAME environment variable.
   --committer-email <email>    Override committer email for all transferred commits. Requires --committer-name. Can also be set via GITMUX_COMMITTER_EMAIL environment variable.
-  --coauthor-action <action>   Action for Co-authored-by trailers in commit messages: 'remove' or 'keep'. (default: 'remove' when author/committer options are used, otherwise trailers are preserved). Can also be set via GITMUX_COAUTHOR_ACTION environment variable.
+  --coauthor-action <action>   Action for Co-authored-by trailers and Claude attribution in commit messages:
+                               'claude' - Remove only Claude/Anthropic attribution (Co-authored-by and Generated-with lines)
+                               'all' - Remove ALL Co-authored-by trailers and Generated-with lines
+                               'keep' - Preserve all trailers unchanged
+                               (default: 'claude' when author/committer options are used, otherwise 'keep')
+                               Can also be set via GITMUX_COAUTHOR_ACTION environment variable.
   -k                           Keep the tmp git workspace around instead of cleaning it up (useful for debugging). (default: off)
   -v                           Verbose ( default: off )
   -h                           Print help / usage
@@ -374,14 +379,14 @@ elif [[ -z "$GITMUX_COMMITTER_NAME" ]] && [[ -n "$GITMUX_COMMITTER_EMAIL" ]]; th
 fi
 
 # Validate coauthor-action value
-if [[ -n "$GITMUX_COAUTHOR_ACTION" ]] && [[ "$GITMUX_COAUTHOR_ACTION" != "remove" ]] && [[ "$GITMUX_COAUTHOR_ACTION" != "keep" ]]; then
-  errxit "--coauthor-action must be 'remove' or 'keep', got: ${GITMUX_COAUTHOR_ACTION}"
+if [[ -n "$GITMUX_COAUTHOR_ACTION" ]] && [[ "$GITMUX_COAUTHOR_ACTION" != "claude" ]] && [[ "$GITMUX_COAUTHOR_ACTION" != "all" ]] && [[ "$GITMUX_COAUTHOR_ACTION" != "keep" ]]; then
+  errxit "--coauthor-action must be 'claude', 'all', or 'keep', got: ${GITMUX_COAUTHOR_ACTION}"
 fi
 
-# Default coauthor-action to 'remove' when author/committer options are used
+# Default coauthor-action to 'claude' when author/committer options are used
 if [[ -z "$GITMUX_COAUTHOR_ACTION" ]]; then
   if [[ -n "$GITMUX_AUTHOR_NAME" ]] || [[ -n "$GITMUX_COMMITTER_NAME" ]]; then
-    GITMUX_COAUTHOR_ACTION="remove"
+    GITMUX_COAUTHOR_ACTION="claude"
   fi
 fi
 
@@ -626,10 +631,26 @@ fi
 
 # Build --msg-filter for Co-authored-by handling
 _msg_filter_script=""
-if [[ "$GITMUX_COAUTHOR_ACTION" == "remove" ]]; then
-  # Remove Co-authored-by lines (case-insensitive, handles variations)
-  _msg_filter_script='sed -E "/^[Cc]o-[Aa]uthored-[Bb]y:/d"'
-  log "Co-authored-by trailers will be removed from commit messages"
+if [[ "$GITMUX_COAUTHOR_ACTION" == "claude" ]]; then
+  # Remove only Claude/Anthropic attribution (preserves human co-authors)
+  # Patterns based on common Claude attribution formats:
+  # - Co-authored-by: Claude <...>
+  # - Co-authored-by: Claude Code <...>
+  # - Co-authored-by: *@anthropic.com
+  # - Generated with [Claude Code]...
+  # - Generated with [Claude]...
+  _msg_filter_script='sed -E \
+    -e "/[Cc]o-[Aa]uthored-[Bb]y:[ 	]*[Cc]laude[ 	]*</d" \
+    -e "/[Cc]o-[Aa]uthored-[Bb]y:[ 	]*[Cc]laude[ 	]*[Cc]ode[ 	]*</d" \
+    -e "/[Cc]o-[Aa]uthored-[Bb]y:.*<.*@anthropic\.com>/d" \
+    -e "/[Gg]enerated with.*[Cc]laude/d"'
+  log "Claude/Anthropic attribution will be removed from commit messages (human co-authors preserved)"
+elif [[ "$GITMUX_COAUTHOR_ACTION" == "all" ]]; then
+  # Remove ALL Co-authored-by lines and Generated-with signatures
+  _msg_filter_script='sed -E \
+    -e "/^[Cc]o-[Aa]uthored-[Bb]y:/d" \
+    -e "/[Gg]enerated with/d"'
+  log "All Co-authored-by trailers and Generated-with lines will be removed from commit messages"
 fi
 
 # git filter-branch can take `git rev-list` options for
