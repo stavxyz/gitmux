@@ -251,3 +251,60 @@ teardown() {
     run _realpath /definitely/not/a/real/path/12345
     [[ "$status" -ne 0 ]]
 }
+
+# Author/committer override validation tests
+@test "validation: --author-name without --author-email fails" {
+    run bash -c "cd '$BATS_TEST_DIRNAME/..' && ./gitmux.sh --author-name 'Test' -r foo -t bar 2>&1"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" =~ "--author-name requires --author-email" ]]
+}
+
+@test "validation: --author-email without --author-name fails" {
+    run bash -c "cd '$BATS_TEST_DIRNAME/..' && ./gitmux.sh --author-email 'test@example.com' -r foo -t bar 2>&1"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" =~ "--author-email requires --author-name" ]]
+}
+
+@test "validation: --committer-name without --committer-email fails" {
+    run bash -c "cd '$BATS_TEST_DIRNAME/..' && ./gitmux.sh --committer-name 'Test' -r foo -t bar 2>&1"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" =~ "--committer-name requires --committer-email" ]]
+}
+
+@test "validation: --committer-email without --committer-name fails" {
+    run bash -c "cd '$BATS_TEST_DIRNAME/..' && ./gitmux.sh --committer-email 'test@example.com' -r foo -t bar 2>&1"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" =~ "--committer-email requires --committer-name" ]]
+}
+
+@test "validation: invalid --coauthor-action value fails" {
+    run bash -c "cd '$BATS_TEST_DIRNAME/..' && ./gitmux.sh --coauthor-action invalid -r foo -t bar 2>&1"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" =~ "--coauthor-action must be 'remove' or 'keep'" ]]
+}
+
+@test "validation: --coauthor-action 'remove' is valid" {
+    # This should fail later (no actual repo), but not on coauthor-action validation
+    run bash -c "cd '$BATS_TEST_DIRNAME/..' && ./gitmux.sh --coauthor-action remove -r foo -t bar 2>&1"
+    [[ ! "$output" =~ "--coauthor-action must be" ]]
+}
+
+@test "validation: --coauthor-action 'keep' is valid" {
+    # This should fail later (no actual repo), but not on coauthor-action validation
+    run bash -c "cd '$BATS_TEST_DIRNAME/..' && ./gitmux.sh --coauthor-action keep -r foo -t bar 2>&1"
+    [[ ! "$output" =~ "--coauthor-action must be" ]]
+}
+
+@test "validation: both --author-name and --author-email together is valid" {
+    # This should fail later (no actual repo), but not on author validation
+    run bash -c "cd '$BATS_TEST_DIRNAME/..' && ./gitmux.sh --author-name 'Test' --author-email 'test@example.com' -r foo -t bar 2>&1"
+    [[ ! "$output" =~ "--author-name requires" ]]
+    [[ ! "$output" =~ "--author-email requires" ]]
+}
+
+@test "validation: both --committer-name and --committer-email together is valid" {
+    # This should fail later (no actual repo), but not on committer validation
+    run bash -c "cd '$BATS_TEST_DIRNAME/..' && ./gitmux.sh --committer-name 'Test' --committer-email 'test@example.com' -r foo -t bar 2>&1"
+    [[ ! "$output" =~ "--committer-name requires" ]]
+    [[ ! "$output" =~ "--committer-email requires" ]]
+}

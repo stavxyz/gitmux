@@ -175,6 +175,19 @@ if ! command -v jq &> /dev/null; then
   exit 1
 fi
 
+# Convert long options to short options for getopts compatibility
+for arg in "$@"; do
+  shift
+  case "$arg" in
+    '--author-name')     set -- "$@" '-N' ;;
+    '--author-email')    set -- "$@" '-E' ;;
+    '--committer-name')  set -- "$@" '-n' ;;
+    '--committer-email') set -- "$@" '-e' ;;
+    '--coauthor-action') set -- "$@" '-C' ;;
+    *)                   set -- "$@" "$arg" ;;
+  esac
+done
+
 # Reset in case getopts has been used previously in the shell.
 OPTIND=1
 
@@ -196,6 +209,13 @@ MERGE_STRATEGY_OPTION_FOR_REBASE="${MERGE_STRATEGY_OPTION_FOR_REBASE:-ours}"
 REBASE_OPTIONS="${REBASE_OPTIONS:-}"
 GH_HOST="${GH_HOST:-github.com}"
 GITHUB_TEAMS=()
+
+# Author/committer override options (can be set via environment)
+GITMUX_AUTHOR_NAME="${GITMUX_AUTHOR_NAME:-}"
+GITMUX_AUTHOR_EMAIL="${GITMUX_AUTHOR_EMAIL:-}"
+GITMUX_COMMITTER_NAME="${GITMUX_COMMITTER_NAME:-}"
+GITMUX_COMMITTER_EMAIL="${GITMUX_COMMITTER_EMAIL:-}"
+GITMUX_COAUTHOR_ACTION="${GITMUX_COAUTHOR_ACTION:-}"
 
 source_repository="${SOURCE_REPOSITORY}"
 subdirectory_filter="${SUBDIRECTORY_FILTER}"
@@ -229,7 +249,7 @@ function show_help()
 {
   # shellcheck disable=SC1111
   cat << EOF
-  Usage: ${0##*/} [-r SOURCE_REPOSITORY] [-d SUBDIRECTORY_FILTER] [-g GITREF] [-t DESTINATION_REPOSITORY] [-p DESTINATION_PATH] [-b DESTINATION_BRANCH] [-X REBASE_STRATEGY_OPTION | -o REBASE_OPTIONS] [-z GITHUB_TEAM -z ...] [-i] [-s] [-c] [-k] [-v] [-h]
+  Usage: ${0##*/} [-r SOURCE_REPOSITORY] [-d SUBDIRECTORY_FILTER] [-g GITREF] [-t DESTINATION_REPOSITORY] [-p DESTINATION_PATH] [-b DESTINATION_BRANCH] [-X REBASE_STRATEGY_OPTION | -o REBASE_OPTIONS] [-z GITHUB_TEAM -z ...] [--author-name NAME --author-email EMAIL] [--committer-name NAME --committer-email EMAIL] [--coauthor-action remove|keep] [-i] [-s] [-c] [-k] [-v] [-h]
   “The life of a repo man is always intense.”
   -r <repository>              Path/url to the [remote] source repository. Required.
   -t <destination_repository>  Path/url to the [remote] destination repository. Required.
@@ -244,6 +264,11 @@ function show_help()
   -s                           Submit a pull request to your destination. Requires \`gh\`. Only valid for non-local destination repositories. (default: off)
   -c                           Create the destination repository if it does not exist. Requires \`gh\`. (default: off)
   -z                           Add this team to your destination repository. Use <org>/<team> notation e.g. engineering-org/firmware-team May be specified multiple times. Requires \`gh\`. Only valid for non-local destination repositories.
+  --author-name <name>         Override author name for all transferred commits. Requires --author-email. Can also be set via GITMUX_AUTHOR_NAME environment variable.
+  --author-email <email>       Override author email for all transferred commits. Requires --author-name. Can also be set via GITMUX_AUTHOR_EMAIL environment variable.
+  --committer-name <name>      Override committer name for all transferred commits. Requires --committer-email. Can also be set via GITMUX_COMMITTER_NAME environment variable.
+  --committer-email <email>    Override committer email for all transferred commits. Requires --committer-name. Can also be set via GITMUX_COMMITTER_EMAIL environment variable.
+  --coauthor-action <action>   Action for Co-authored-by trailers in commit messages: 'remove' or 'keep'. (default: 'remove' when author/committer options are used, otherwise trailers are preserved). Can also be set via GITMUX_COAUTHOR_ACTION environment variable.
   -k                           Keep the tmp git workspace around instead of cleaning it up (useful for debugging). (default: off)
   -v                           Verbose ( default: off )
   -h                           Print help / usage
@@ -253,7 +278,7 @@ EOF
 # Rebase option related flags are mutually exclusive
 _rebase_option_flags=''
 
-while getopts "h?vr:d:g:t:p:z:b:l:o:X:sick" OPT; do
+while getopts "h?vr:d:g:t:p:z:b:l:o:X:sickN:E:n:e:C:" OPT; do
   case "$OPT" in
     r)  source_repository=$OPTARG
       ;;
@@ -282,6 +307,16 @@ while getopts "h?vr:d:g:t:p:z:b:l:o:X:sick" OPT; do
     c)  CREATE_NEW_REPOSITORY=true
       ;;
     k)  KEEP_TMP_WORKSPACE=true
+      ;;
+    N)  GITMUX_AUTHOR_NAME=$OPTARG
+      ;;
+    E)  GITMUX_AUTHOR_EMAIL=$OPTARG
+      ;;
+    n)  GITMUX_COMMITTER_NAME=$OPTARG
+      ;;
+    e)  GITMUX_COMMITTER_EMAIL=$OPTARG
+      ;;
+    C)  GITMUX_COAUTHOR_ACTION=$OPTARG
       ;;
     h)  show_help && exit 0;;
     v)   _verbose=1;;
@@ -322,6 +357,31 @@ fi
 if [[ "${CREATE_NEW_REPOSITORY}" == "true" ]]; then
   if ! command -v gh &> /dev/null; then
     errxit "Error: -c flag requires gh (GitHub CLI) but it's not installed. Install from: https://cli.github.com/"
+  fi
+fi
+
+# Validate author/committer options: require both name and email if either provided
+if [[ -n "$GITMUX_AUTHOR_NAME" ]] && [[ -z "$GITMUX_AUTHOR_EMAIL" ]]; then
+  errxit "--author-name requires --author-email to also be specified"
+elif [[ -z "$GITMUX_AUTHOR_NAME" ]] && [[ -n "$GITMUX_AUTHOR_EMAIL" ]]; then
+  errxit "--author-email requires --author-name to also be specified"
+fi
+
+if [[ -n "$GITMUX_COMMITTER_NAME" ]] && [[ -z "$GITMUX_COMMITTER_EMAIL" ]]; then
+  errxit "--committer-name requires --committer-email to also be specified"
+elif [[ -z "$GITMUX_COMMITTER_NAME" ]] && [[ -n "$GITMUX_COMMITTER_EMAIL" ]]; then
+  errxit "--committer-email requires --committer-name to also be specified"
+fi
+
+# Validate coauthor-action value
+if [[ -n "$GITMUX_COAUTHOR_ACTION" ]] && [[ "$GITMUX_COAUTHOR_ACTION" != "remove" ]] && [[ "$GITMUX_COAUTHOR_ACTION" != "keep" ]]; then
+  errxit "--coauthor-action must be 'remove' or 'keep', got: ${GITMUX_COAUTHOR_ACTION}"
+fi
+
+# Default coauthor-action to 'remove' when author/committer options are used
+if [[ -z "$GITMUX_COAUTHOR_ACTION" ]]; then
+  if [[ -n "$GITMUX_AUTHOR_NAME" ]] || [[ -n "$GITMUX_COMMITTER_NAME" ]]; then
+    GITMUX_COAUTHOR_ACTION="remove"
   fi
 fi
 
@@ -540,6 +600,38 @@ else
   _subdirectory_filter_options=''
 fi
 
+# Build --env-filter for author/committer override
+_env_filter_script=""
+if [[ -n "$GITMUX_AUTHOR_NAME" ]] || [[ -n "$GITMUX_COMMITTER_NAME" ]]; then
+  # Export for use in filter subprocess
+  export GITMUX_AUTHOR_NAME GITMUX_AUTHOR_EMAIL
+  export GITMUX_COMMITTER_NAME GITMUX_COMMITTER_EMAIL
+  # shellcheck disable=SC2016  # Single quotes are intentional - script is evaluated by filter-branch
+  _env_filter_script='
+    if [ -n "${GITMUX_AUTHOR_NAME:-}" ]; then
+      export GIT_AUTHOR_NAME="${GITMUX_AUTHOR_NAME}"
+      export GIT_AUTHOR_EMAIL="${GITMUX_AUTHOR_EMAIL}"
+    fi
+    if [ -n "${GITMUX_COMMITTER_NAME:-}" ]; then
+      export GIT_COMMITTER_NAME="${GITMUX_COMMITTER_NAME}"
+      export GIT_COMMITTER_EMAIL="${GITMUX_COMMITTER_EMAIL}"
+    fi
+  '
+  log "Author/committer override enabled"
+  log "  GITMUX_AUTHOR_NAME=${GITMUX_AUTHOR_NAME:-<not set>}"
+  log "  GITMUX_AUTHOR_EMAIL=${GITMUX_AUTHOR_EMAIL:-<not set>}"
+  log "  GITMUX_COMMITTER_NAME=${GITMUX_COMMITTER_NAME:-<not set>}"
+  log "  GITMUX_COMMITTER_EMAIL=${GITMUX_COMMITTER_EMAIL:-<not set>}"
+fi
+
+# Build --msg-filter for Co-authored-by handling
+_msg_filter_script=""
+if [[ "$GITMUX_COAUTHOR_ACTION" == "remove" ]]; then
+  # Remove Co-authored-by lines (case-insensitive, handles variations)
+  _msg_filter_script='sed -E "/^[Cc]o-[Aa]uthored-[Bb]y:/d"'
+  log "Co-authored-by trailers will be removed from commit messages"
+fi
+
 # git filter-branch can take `git rev-list` options for
 # additional filtering control. For example, advanced
 # users can target specific files for their [new] repo.
@@ -554,18 +646,32 @@ log "git filter-branch --tag-name-filter cat ${_subdirectory_filter_options:-} [
 # WARNING: git-filter-branch has a glut of gotchas...
 # Yeah, we know.
 export FILTER_BRANCH_SQUELCH_WARNING=1
+
+# Build the filter-branch command dynamically based on which filters are needed
+_filter_branch_cmd="git filter-branch --tag-name-filter cat"
+
+if [ -n "${_env_filter_script}" ]; then
+  _filter_branch_cmd="${_filter_branch_cmd} --env-filter '${_env_filter_script}'"
+fi
+
+if [ -n "${_msg_filter_script}" ]; then
+  _filter_branch_cmd="${_filter_branch_cmd} --msg-filter '${_msg_filter_script}'"
+fi
+
 if [ -n "${rev_list_files}" ]; then
   log "Targeting paths/revisions: ${rev_list_files}"
   # shellcheck disable=SC2086  # Word splitting is intentional for filter options
-  git filter-branch --tag-name-filter cat ${_subdirectory_filter_options} \
-    --index-filter "
+  _filter_branch_cmd="${_filter_branch_cmd} ${_subdirectory_filter_options} --index-filter \"
     git read-tree --empty
-    git reset \$GIT_COMMIT -- ${rev_list_files}
-   " \
-   -- --all -- ${rev_list_files}
+    git reset \\\$GIT_COMMIT -- ${rev_list_files}
+   \" -- --all -- ${rev_list_files}"
+  log "Running: ${_filter_branch_cmd}"
+  eval "${_filter_branch_cmd}"
 else
   # shellcheck disable=SC2086  # Word splitting is intentional for filter options
-  git filter-branch --tag-name-filter cat ${_subdirectory_filter_options}
+  _filter_branch_cmd="${_filter_branch_cmd} ${_subdirectory_filter_options}"
+  log "Running: ${_filter_branch_cmd}"
+  eval "${_filter_branch_cmd}"
 fi
 
 log "git filter-branch completed."
