@@ -118,6 +118,7 @@ Required:
 Filtering:
   -d <path>           Extract only this subdirectory
   -l <rev-list>       Extract specific files (git rev-list format)
+                      Note: file paths with spaces are not supported
   -g <gitref>         Source git ref (branch, tag, commit)
 
 Destination:

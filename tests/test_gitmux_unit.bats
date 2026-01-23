@@ -346,17 +346,14 @@ teardown() {
 # Default behavior test - verify coauthor-action defaults to 'claude' when author options are used
 # This is tested indirectly via E2E tests, but we also verify the code logic here
 @test "validation: --coauthor-action defaults to 'claude' when author options are used" {
-    # Test the default logic by examining the relevant code section
-    # The default happens at lines 393-398 of gitmux.sh:
-    #   if [[ -z "$GITMUX_COAUTHOR_ACTION" ]]; then
-    #     if [[ -n "$GITMUX_AUTHOR_NAME" ]] || [[ -n "$GITMUX_COMMITTER_NAME" ]]; then
-    #       GITMUX_COAUTHOR_ACTION="claude"
-    #
-    # We verify this logic by simulating it in a subshell
+    # Test the GITMUX_COAUTHOR_ACTION default logic:
+    # When author/committer options are provided without explicit --coauthor-action,
+    # gitmux defaults to 'claude' mode (remove Claude/Anthropic attribution).
+    # We verify this by simulating the same logic in a subshell.
     run bash -c '
         GITMUX_COAUTHOR_ACTION=""
         GITMUX_AUTHOR_NAME="Test Author"
-        # Apply the default logic (same as gitmux.sh lines 393-398)
+        # Apply the default logic (mirrors gitmux.sh behavior)
         if [[ -z "$GITMUX_COAUTHOR_ACTION" ]]; then
             if [[ -n "$GITMUX_AUTHOR_NAME" ]] || [[ -n "$GITMUX_COMMITTER_NAME" ]]; then
                 GITMUX_COAUTHOR_ACTION="claude"
