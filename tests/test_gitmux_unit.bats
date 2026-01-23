@@ -389,10 +389,15 @@ teardown_local_repos() {
     rm -rf "$E2E_TEST_DIR" 2>/dev/null || true
 }
 
-# Helper function to find the update branch and get commit message
-# Sets E2E_COMMIT_MSG on success, returns 1 on failure
-get_commit_message_from_update_branch() {
+# Generic helper to get git log field from update branch
+# Usage: get_field_from_update_branch <dest_dir> <format> <output_var_name>
+# Example: get_field_from_update_branch "$dir" "%B" E2E_COMMIT_MSG
+# Returns 1 on failure with error message to stderr
+get_field_from_update_branch() {
     local dest_dir="$1"
+    local format="$2"
+    local output_var="$3"
+
     cd "$dest_dir" || return 1
     git fetch --all --quiet 2>/dev/null
 
@@ -405,40 +410,25 @@ get_commit_message_from_update_branch() {
         return 1
     fi
 
-    E2E_COMMIT_MSG=$(git log -1 --format="%B" "$branch_name" 2>/dev/null)
-    if [[ -z "$E2E_COMMIT_MSG" ]]; then
-        echo "ERROR: Could not get commit message from branch $branch_name" >&2
+    local value
+    value=$(git log -1 --format="$format" "$branch_name" 2>/dev/null)
+    if [[ -z "$value" ]]; then
+        echo "ERROR: Could not get field (format=$format) from branch $branch_name" >&2
         return 1
     fi
 
-    export E2E_COMMIT_MSG
+    # Export the result to the named variable
+    export "$output_var"="$value"
     return 0
 }
 
-# Helper function to get author from update branch
-# Sets E2E_COMMIT_AUTHOR on success, returns 1 on failure
+# Convenience wrappers for common fields
+get_commit_message_from_update_branch() {
+    get_field_from_update_branch "$1" "%B" E2E_COMMIT_MSG
+}
+
 get_author_from_update_branch() {
-    local dest_dir="$1"
-    cd "$dest_dir" || return 1
-    git fetch --all --quiet 2>/dev/null
-
-    local branch_name
-    branch_name=$(git branch -r | grep "update-from-main" | head -1 | tr -d ' ')
-    if [[ -z "$branch_name" ]]; then
-        echo "ERROR: No update-from-main branch found in destination" >&2
-        echo "Available remote branches:" >&2
-        git branch -r >&2
-        return 1
-    fi
-
-    E2E_COMMIT_AUTHOR=$(git log -1 --format="%an <%ae>" "$branch_name" 2>/dev/null)
-    if [[ -z "$E2E_COMMIT_AUTHOR" ]]; then
-        echo "ERROR: Could not get author from branch $branch_name" >&2
-        return 1
-    fi
-
-    export E2E_COMMIT_AUTHOR
-    return 0
+    get_field_from_update_branch "$1" "%an <%ae>" E2E_COMMIT_AUTHOR
 }
 
 @test "e2e: author override changes commit author" {
