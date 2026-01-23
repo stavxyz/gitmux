@@ -413,6 +413,12 @@ fi
 # Sanitize author/committer values to prevent shell injection
 # These values are used in filter-branch scripts executed via eval
 # Reject values containing shell metacharacters that could enable injection
+#
+# SECURITY NOTE: This validation is CRITICAL for safe eval usage later in the script.
+# The validated values are interpolated into shell scripts passed to git filter-branch.
+# Any shell metacharacter could enable command injection. The blocklist includes:
+#   ' " $ ` \ ; | & ( ) < > and newlines
+# This is a defense-in-depth measure - values should also only come from trusted sources.
 _validate_safe_string() {
   local value="$1"
   local field_name="$2"
@@ -681,7 +687,9 @@ if [[ "$GITMUX_COAUTHOR_ACTION" == "claude" ]]; then
   # Note: Patterns are ordered most-specific-first to ensure proper matching.
   # The "Claude Code" pattern requires whitespace between words.
   # The generic "Claude" pattern is anchored to the email bracket < to avoid
-  # false positives like "Claudette" or "McCloud".
+  # false positives like "Claudette" or "McCloud". Edge case: a human named
+  # "Claude <email>" would be caught, but this is rare and acceptable given
+  # the primary use case (removing AI attribution from synced repositories).
   _msg_filter_script='sed -E \
     -e "/[Cc]o-[Aa]uthored-[Bb]y:[[:space:]]*[Cc]laude[[:space:]]+[Cc]ode/d" \
     -e "/[Cc]o-[Aa]uthored-[Bb]y:[[:space:]]*[Cc]laude[[:space:]]*</d" \
@@ -780,12 +788,20 @@ if [[ "${DRY_RUN}" == "true" ]]; then
 
   # Show sample commit messages with co-author trailers (if any)
   if [[ -n "$GITMUX_COAUTHOR_ACTION" ]] && [[ "$GITMUX_COAUTHOR_ACTION" != "keep" ]]; then
+    # Count total commits with trailers (scan up to 1000 for performance)
+    _trailer_commit_count=$(git log --all --format="%H" | head -1000 | while read -r sha; do
+      git log -1 --format="%B" "$sha" 2>/dev/null | grep -qi "co-authored-by\|generated with" && echo "$sha"
+    done | wc -l | tr -d ' ')
+
+    # Get sample commits for display (up to 3)
     _coauthor_commits=$(git log --all --format="%H" | head -50 | while read -r sha; do
       git log -1 --format="%B" "$sha" 2>/dev/null | grep -qi "co-authored-by\|generated with" && echo "$sha"
     done | head -3)
 
     if [[ -n "$_coauthor_commits" ]]; then
-      echo "┌─ Sample commits with trailers that would be modified ────────────────────────┐"
+      echo "┌─ Commits with trailers that would be modified ───────────────────────────────┐"
+      echo "│  Found: ${_trailer_commit_count} commit(s) with Co-authored-by or Generated-with trailers"
+      echo "│  (scanned up to 1000 commits)"
       echo "$_coauthor_commits" | while read -r sha; do
         if [[ -n "$sha" ]]; then
           echo "│"
