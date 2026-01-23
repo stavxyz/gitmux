@@ -315,6 +315,25 @@ teardown() {
     [[ ! "$output" =~ "--committer-email requires" ]]
 }
 
+# Security: Shell metacharacter injection prevention
+@test "validation: --author-name with shell metacharacters is rejected" {
+    run bash -c "cd '$BATS_TEST_DIRNAME/..' && ./gitmux.sh --author-name 'Test\$(whoami)' --author-email 'test@example.com' -r foo -t bar 2>&1"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" =~ "contains invalid characters" ]]
+}
+
+@test "validation: --author-email with backticks is rejected" {
+    run bash -c "cd '$BATS_TEST_DIRNAME/..' && ./gitmux.sh --author-name 'Test' --author-email 'test\`id\`@example.com' -r foo -t bar 2>&1"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" =~ "contains invalid characters" ]]
+}
+
+@test "validation: --author-name with single quotes is rejected" {
+    run bash -c "cd '$BATS_TEST_DIRNAME/..' && ./gitmux.sh --author-name \"Test'injection\" --author-email 'test@example.com' -r foo -t bar 2>&1"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" =~ "contains invalid characters" ]]
+}
+
 # =============================================================================
 # E2E Tests for Author/Committer Override and Co-author Handling
 # These tests use local git repos to verify the full workflow
@@ -413,7 +432,7 @@ Generated with [Claude Code](https://claude.ai/code)"
         -k <<< 'y' 2>&1"
 
     # Find the gitmux workspace and check the commit message
-    local workspace=$(echo "$output" | grep -o '/var/folders[^ ]*gitmux[^ ]*' | head -1 || echo "")
+    local workspace=$(echo "$output" | grep -oE '(/var/folders|/tmp)[^ ]*gitmux[^ ]*' | head -1 || echo "")
     if [[ -n "$workspace" ]] && [[ -d "$workspace" ]]; then
         cd "$workspace"
         local gitdir=$(find . -name ".git" -type d 2>/dev/null | head -1)
@@ -458,7 +477,7 @@ Co-authored-by: Claude <noreply@anthropic.com>"
         -k <<< 'y' 2>&1"
 
     # Find the gitmux workspace and check the commit message
-    local workspace=$(echo "$output" | grep -o '/var/folders[^ ]*gitmux[^ ]*' | head -1 || echo "")
+    local workspace=$(echo "$output" | grep -oE '(/var/folders|/tmp)[^ ]*gitmux[^ ]*' | head -1 || echo "")
     if [[ -n "$workspace" ]] && [[ -d "$workspace" ]]; then
         cd "$workspace"
         local gitdir=$(find . -name ".git" -type d 2>/dev/null | head -1)
@@ -500,7 +519,7 @@ Co-authored-by: Claude <noreply@anthropic.com>"
         -k <<< 'y' 2>&1"
 
     # Find the gitmux workspace and check the commit message
-    local workspace=$(echo "$output" | grep -o '/var/folders[^ ]*gitmux[^ ]*' | head -1 || echo "")
+    local workspace=$(echo "$output" | grep -oE '(/var/folders|/tmp)[^ ]*gitmux[^ ]*' | head -1 || echo "")
     if [[ -n "$workspace" ]] && [[ -d "$workspace" ]]; then
         cd "$workspace"
         local gitdir=$(find . -name ".git" -type d 2>/dev/null | head -1)
