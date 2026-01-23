@@ -251,7 +251,13 @@ function show_help()
 {
   # shellcheck disable=SC1111
   cat << EOF
-  Usage: ${0##*/} [-r SOURCE_REPOSITORY] [-d SUBDIRECTORY_FILTER] [-g GITREF] [-t DESTINATION_REPOSITORY] [-p DESTINATION_PATH] [-b DESTINATION_BRANCH] [-X REBASE_STRATEGY_OPTION | -o REBASE_OPTIONS] [-z GITHUB_TEAM -z ...] [--author-name NAME --author-email EMAIL] [--committer-name NAME --committer-email EMAIL] [--coauthor-action claude|all|keep] [-i] [-s] [-c] [-k] [-v] [-h]
+  Usage: ${0##*/} -r SOURCE -t DESTINATION [OPTIONS]
+
+  Options: [-d SUBDIR] [-g GITREF] [-p DEST_PATH] [-b DEST_BRANCH]
+           [-X STRATEGY | -o REBASE_OPTS] [-z TEAM ...] [-i] [-s] [-c] [-k] [-v]
+           [--author-name NAME --author-email EMAIL]
+           [--committer-name NAME --committer-email EMAIL]
+           [--coauthor-action claude|all|keep] [--dry-run]
   “The life of a repo man is always intense.”
   -r <repository>              Path/url to the [remote] source repository. Required.
   -t <destination_repository>  Path/url to the [remote] destination repository. Required.
@@ -666,11 +672,12 @@ if [[ "$GITMUX_COAUTHOR_ACTION" == "claude" ]]; then
   # - Co-authored-by: *@anthropic.com
   # - Generated with [Claude Code]... or [Claude]...
   # Note: Patterns are ordered most-specific-first to ensure proper matching.
-  # The "Claude Code" pattern requires whitespace between the words to avoid
-  # false positives like "Claudette McCode".
+  # The "Claude Code" pattern requires whitespace between words.
+  # The generic "Claude" pattern is anchored to the email bracket < to avoid
+  # false positives like "Claudette" or "McCloud".
   _msg_filter_script='sed -E \
     -e "/[Cc]o-[Aa]uthored-[Bb]y:[[:space:]]*[Cc]laude[[:space:]]+[Cc]ode/d" \
-    -e "/[Cc]o-[Aa]uthored-[Bb]y:.*[Cc]laude/d" \
+    -e "/[Cc]o-[Aa]uthored-[Bb]y:[[:space:]]*[Cc]laude[[:space:]]*</d" \
     -e "/[Cc]o-[Aa]uthored-[Bb]y:.*@anthropic\.com/d" \
     -e "/[Gg]enerated with.*[Cc]laude/d"'
   log "Claude/Anthropic attribution will be removed from commit messages (human co-authors preserved)"
@@ -790,8 +797,12 @@ if [[ "${DRY_RUN}" == "true" ]]; then
   echo "═══════════════════════════════════════════════════════════════════════════════"
   echo ""
 
-  # Cleanup and exit (absolute path, no cd needed)
-  rm -rf "${gitmux_TMP_WORKSPACE}"
+  # Cleanup and exit, respecting KEEP_TMP_WORKSPACE like the main cleanup() function
+  if [[ "${KEEP_TMP_WORKSPACE:-false}" == "true" ]]; then
+    echo "Keeping workspace at: ${gitmux_TMP_WORKSPACE}"
+  else
+    rm -rf "${gitmux_TMP_WORKSPACE}"
+  fi
   exit 0
 fi
 

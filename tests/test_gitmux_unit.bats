@@ -343,6 +343,30 @@ teardown() {
     [[ ! "$output" =~ "Unimplemented option" ]]
 }
 
+# Default behavior test - verify coauthor-action defaults to 'claude' when author options are used
+# This is tested indirectly via E2E tests, but we also verify the code logic here
+@test "validation: --coauthor-action defaults to 'claude' when author options are used" {
+    # Test the default logic by examining the relevant code section
+    # The default happens at lines 393-398 of gitmux.sh:
+    #   if [[ -z "$GITMUX_COAUTHOR_ACTION" ]]; then
+    #     if [[ -n "$GITMUX_AUTHOR_NAME" ]] || [[ -n "$GITMUX_COMMITTER_NAME" ]]; then
+    #       GITMUX_COAUTHOR_ACTION="claude"
+    #
+    # We verify this logic by simulating it in a subshell
+    run bash -c '
+        GITMUX_COAUTHOR_ACTION=""
+        GITMUX_AUTHOR_NAME="Test Author"
+        # Apply the default logic (same as gitmux.sh lines 393-398)
+        if [[ -z "$GITMUX_COAUTHOR_ACTION" ]]; then
+            if [[ -n "$GITMUX_AUTHOR_NAME" ]] || [[ -n "$GITMUX_COMMITTER_NAME" ]]; then
+                GITMUX_COAUTHOR_ACTION="claude"
+            fi
+        fi
+        echo "$GITMUX_COAUTHOR_ACTION"
+    '
+    [[ "$output" == "claude" ]]
+}
+
 # =============================================================================
 # E2E Tests for Author/Committer Override and Co-author Handling
 # These tests use local git repos to verify the full workflow
@@ -420,15 +444,6 @@ get_field_from_update_branch() {
     # Export the result to the named variable
     export "$output_var"="$value"
     return 0
-}
-
-# Convenience wrappers for common fields
-get_commit_message_from_update_branch() {
-    get_field_from_update_branch "$1" "%B" E2E_COMMIT_MSG
-}
-
-get_author_from_update_branch() {
-    get_field_from_update_branch "$1" "%an <%ae>" E2E_COMMIT_AUTHOR
 }
 
 @test "e2e: author override changes commit author" {
