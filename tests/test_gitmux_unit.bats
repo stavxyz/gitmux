@@ -334,6 +334,15 @@ teardown() {
     [[ "$output" =~ "contains invalid characters" ]]
 }
 
+# Dry-run option test
+@test "validation: --dry-run option is recognized" {
+    # --dry-run should not cause an unknown option error
+    # It will fail later because of missing repos, but not on option parsing
+    run bash -c "cd '$BATS_TEST_DIRNAME/..' && ./gitmux.sh --dry-run -r foo -t bar 2>&1"
+    [[ ! "$output" =~ "Unknown option" ]]
+    [[ ! "$output" =~ "Unimplemented option" ]]
+}
+
 # =============================================================================
 # E2E Tests for Author/Committer Override and Co-author Handling
 # These tests use local git repos to verify the full workflow
@@ -341,13 +350,14 @@ teardown() {
 
 setup_local_repos() {
     # Create temp directory for test repos
-    export E2E_TEST_DIR=$(mktemp -d)
+    E2E_TEST_DIR=$(mktemp -d)
+    export E2E_TEST_DIR
 
     # Create source repo with bare remote (use -b main for consistent branch naming)
     mkdir -p "$E2E_TEST_DIR/source-bare.git"
     git init --bare --initial-branch=main "$E2E_TEST_DIR/source-bare.git"
     git clone "$E2E_TEST_DIR/source-bare.git" "$E2E_TEST_DIR/source"
-    cd "$E2E_TEST_DIR/source"
+    cd "$E2E_TEST_DIR/source" || return 1
     git config user.name "Original Author"
     git config user.email "original@example.com"
     # Ensure we're on main branch (git clone of empty repo may not set this)
@@ -357,7 +367,7 @@ setup_local_repos() {
     mkdir -p "$E2E_TEST_DIR/dest-bare.git"
     git init --bare --initial-branch=main "$E2E_TEST_DIR/dest-bare.git"
     git clone "$E2E_TEST_DIR/dest-bare.git" "$E2E_TEST_DIR/dest"
-    cd "$E2E_TEST_DIR/dest"
+    cd "$E2E_TEST_DIR/dest" || return 1
     git config user.name "Dest User"
     git config user.email "dest@example.com"
     # Ensure we're on main branch (git clone of empty repo may not set this)
@@ -372,18 +382,70 @@ teardown_local_repos() {
     rm -rf "$E2E_TEST_DIR" 2>/dev/null || true
 }
 
+# Helper function to find the update branch and get commit message
+# Sets E2E_COMMIT_MSG on success, returns 1 on failure
+get_commit_message_from_update_branch() {
+    local dest_dir="$1"
+    cd "$dest_dir" || return 1
+    git fetch --all --quiet 2>/dev/null
+
+    local branch_name
+    branch_name=$(git branch -r | grep "update-from-main" | head -1 | tr -d ' ')
+    if [[ -z "$branch_name" ]]; then
+        echo "ERROR: No update-from-main branch found in destination" >&2
+        echo "Available remote branches:" >&2
+        git branch -r >&2
+        return 1
+    fi
+
+    E2E_COMMIT_MSG=$(git log -1 --format="%B" "$branch_name" 2>/dev/null)
+    if [[ -z "$E2E_COMMIT_MSG" ]]; then
+        echo "ERROR: Could not get commit message from branch $branch_name" >&2
+        return 1
+    fi
+
+    export E2E_COMMIT_MSG
+    return 0
+}
+
+# Helper function to get author from update branch
+# Sets E2E_COMMIT_AUTHOR on success, returns 1 on failure
+get_author_from_update_branch() {
+    local dest_dir="$1"
+    cd "$dest_dir" || return 1
+    git fetch --all --quiet 2>/dev/null
+
+    local branch_name
+    branch_name=$(git branch -r | grep "update-from-main" | head -1 | tr -d ' ')
+    if [[ -z "$branch_name" ]]; then
+        echo "ERROR: No update-from-main branch found in destination" >&2
+        echo "Available remote branches:" >&2
+        git branch -r >&2
+        return 1
+    fi
+
+    E2E_COMMIT_AUTHOR=$(git log -1 --format="%an <%ae>" "$branch_name" 2>/dev/null)
+    if [[ -z "$E2E_COMMIT_AUTHOR" ]]; then
+        echo "ERROR: Could not get author from branch $branch_name" >&2
+        return 1
+    fi
+
+    export E2E_COMMIT_AUTHOR
+    return 0
+}
+
 @test "e2e: author override changes commit author" {
     setup_local_repos
 
     # Create source commit
-    cd "$E2E_TEST_DIR/source"
+    cd "$E2E_TEST_DIR/source" || return 1
     echo "content" > file.txt
     git add .
     git commit -m "Test commit"
     git push origin main
 
-    # Run gitmux with author override
-    cd "$BATS_TEST_DIRNAME/.."
+    # Run gitmux with author override - use working copies
+    cd "$BATS_TEST_DIRNAME/.." || return 1
     run bash -c "./gitmux.sh \
         -r '$E2E_TEST_DIR/source' \
         -t '$E2E_TEST_DIR/dest' \
@@ -392,16 +454,24 @@ teardown_local_repos() {
         --author-email 'new@example.com' \
         -k <<< 'y' 2>&1"
 
-    # Check the destination repo for the new author
-    cd "$E2E_TEST_DIR/dest"
-    git fetch --all
+    # Debug: show gitmux output if something went wrong
+    echo "gitmux output: $output" >&2
 
-    # Get the author from the PR branch
-    local branch_name=$(git branch -r | grep "update-from-main" | head -1 | tr -d ' ')
-    if [[ -n "$branch_name" ]]; then
-        local author=$(git log -1 --format="%an <%ae>" "$branch_name" -- file.txt 2>/dev/null || echo "")
-        [[ "$author" == "New Author <new@example.com>" ]]
-    fi
+    # Verify gitmux didn't fail catastrophically
+    [[ ! "$output" =~ "errxit" ]]
+
+    # Fetch the new branch that gitmux pushed to our dest working copy
+    cd "$E2E_TEST_DIR/dest" || return 1
+
+    # gitmux pushes directly to dest as "destination" remote, so check local refs
+    # The branch should be in refs/remotes/destination/ or as a local tracking branch
+    local branch_name
+    branch_name=$(git branch -a | grep "update-from-main" | head -1 | tr -d ' *')
+
+    [[ -n "$branch_name" ]] || { echo "No update-from-main branch found"; return 1; }
+
+    E2E_COMMIT_AUTHOR=$(git log -1 --format="%an <%ae>" "$branch_name" 2>/dev/null)
+    [[ "$E2E_COMMIT_AUTHOR" == "New Author <new@example.com>" ]]
 
     teardown_local_repos
 }
@@ -410,7 +480,7 @@ teardown_local_repos() {
     setup_local_repos
 
     # Create source commit with mixed co-authors
-    cd "$E2E_TEST_DIR/source"
+    cd "$E2E_TEST_DIR/source" || return 1
     echo "content" > file.txt
     git add .
     git commit -m "Test commit
@@ -423,7 +493,7 @@ Generated with [Claude Code](https://claude.ai/code)"
     git push origin main
 
     # Run gitmux with claude coauthor-action
-    cd "$BATS_TEST_DIRNAME/.."
+    cd "$BATS_TEST_DIRNAME/.." || return 1
     run bash -c "./gitmux.sh \
         -r '$E2E_TEST_DIR/source' \
         -t '$E2E_TEST_DIR/dest' \
@@ -431,25 +501,31 @@ Generated with [Claude Code](https://claude.ai/code)"
         --coauthor-action claude \
         -k <<< 'y' 2>&1"
 
-    # Find the gitmux workspace and check the commit message
-    local workspace=$(echo "$output" | grep -oE '(/var/folders|/tmp)[^ ]*gitmux[^ ]*' | head -1 || echo "")
-    if [[ -n "$workspace" ]] && [[ -d "$workspace" ]]; then
-        cd "$workspace"
-        local gitdir=$(find . -name ".git" -type d 2>/dev/null | head -1)
-        if [[ -n "$gitdir" ]]; then
-            cd "$(dirname "$gitdir")"
-            local branch=$(git branch | grep "update-from-main" | tr -d '* ' | head -1)
-            if [[ -n "$branch" ]]; then
-                local msg=$(git log -1 --format="%B" "$branch" -- file.txt 2>/dev/null || echo "")
-                # Should contain human co-author
-                [[ "$msg" =~ "Human Dev" ]]
-                # Should NOT contain Claude
-                [[ ! "$msg" =~ "Claude" ]]
-                # Should NOT contain Generated with
-                [[ ! "$msg" =~ "Generated with" ]]
-            fi
-        fi
-    fi
+    # Debug: show gitmux output if something went wrong
+    echo "gitmux output: $output" >&2
+
+    # Verify gitmux didn't fail catastrophically
+    [[ ! "$output" =~ "errxit" ]]
+
+    # Check the commit message in dest
+    cd "$E2E_TEST_DIR/dest" || return 1
+
+    local branch_name
+    branch_name=$(git branch -a | grep "update-from-main" | head -1 | tr -d ' *')
+
+    [[ -n "$branch_name" ]] || { echo "No update-from-main branch found"; return 1; }
+
+    # Find the "Test commit" message in the history (not the gitmux merge commit)
+    E2E_COMMIT_MSG=$(git log --format="%B" "$branch_name" | grep -A20 "^Test commit" | head -20)
+
+    # Should contain human co-author
+    [[ "$E2E_COMMIT_MSG" =~ "Human Dev" ]]
+
+    # Should NOT contain Claude
+    [[ ! "$E2E_COMMIT_MSG" =~ "Claude" ]]
+
+    # Should NOT contain Generated with
+    [[ ! "$E2E_COMMIT_MSG" =~ "Generated with" ]]
 
     teardown_local_repos
 }
@@ -458,7 +534,7 @@ Generated with [Claude Code](https://claude.ai/code)"
     setup_local_repos
 
     # Create source commit with co-authors
-    cd "$E2E_TEST_DIR/source"
+    cd "$E2E_TEST_DIR/source" || return 1
     echo "content" > file.txt
     git add .
     git commit -m "Test commit
@@ -468,7 +544,7 @@ Co-authored-by: Claude <noreply@anthropic.com>"
     git push origin main
 
     # Run gitmux with 'all' coauthor-action
-    cd "$BATS_TEST_DIRNAME/.."
+    cd "$BATS_TEST_DIRNAME/.." || return 1
     run bash -c "./gitmux.sh \
         -r '$E2E_TEST_DIR/source' \
         -t '$E2E_TEST_DIR/dest' \
@@ -476,22 +552,24 @@ Co-authored-by: Claude <noreply@anthropic.com>"
         --coauthor-action all \
         -k <<< 'y' 2>&1"
 
-    # Find the gitmux workspace and check the commit message
-    local workspace=$(echo "$output" | grep -oE '(/var/folders|/tmp)[^ ]*gitmux[^ ]*' | head -1 || echo "")
-    if [[ -n "$workspace" ]] && [[ -d "$workspace" ]]; then
-        cd "$workspace"
-        local gitdir=$(find . -name ".git" -type d 2>/dev/null | head -1)
-        if [[ -n "$gitdir" ]]; then
-            cd "$(dirname "$gitdir")"
-            local branch=$(git branch | grep "update-from-main" | tr -d '* ' | head -1)
-            if [[ -n "$branch" ]]; then
-                local msg=$(git log -1 --format="%B" "$branch" -- file.txt 2>/dev/null || echo "")
-                # Should NOT contain any co-author
-                [[ ! "$msg" =~ "Co-authored-by" ]]
-                [[ ! "$msg" =~ "Co-Authored-By" ]]
-            fi
-        fi
-    fi
+    # Debug: show gitmux output if something went wrong
+    echo "gitmux output: $output" >&2
+
+    # Verify gitmux didn't fail catastrophically
+    [[ ! "$output" =~ "errxit" ]]
+
+    # Check the commit message in dest
+    cd "$E2E_TEST_DIR/dest" || return 1
+
+    local branch_name
+    branch_name=$(git branch -a | grep "update-from-main" | head -1 | tr -d ' *')
+
+    [[ -n "$branch_name" ]] || { echo "No update-from-main branch found"; return 1; }
+
+    E2E_COMMIT_MSG=$(git log -1 --format="%B" "$branch_name" 2>/dev/null)
+
+    # Should NOT contain any co-author (case-insensitive check)
+    [[ ! "$E2E_COMMIT_MSG" =~ [Cc]o-[Aa]uthored-[Bb]y ]]
 
     teardown_local_repos
 }
@@ -500,7 +578,7 @@ Co-authored-by: Claude <noreply@anthropic.com>"
     setup_local_repos
 
     # Create source commit with co-authors
-    cd "$E2E_TEST_DIR/source"
+    cd "$E2E_TEST_DIR/source" || return 1
     echo "content" > file.txt
     git add .
     git commit -m "Test commit
@@ -510,7 +588,7 @@ Co-authored-by: Claude <noreply@anthropic.com>"
     git push origin main
 
     # Run gitmux with 'keep' coauthor-action
-    cd "$BATS_TEST_DIRNAME/.."
+    cd "$BATS_TEST_DIRNAME/.." || return 1
     run bash -c "./gitmux.sh \
         -r '$E2E_TEST_DIR/source' \
         -t '$E2E_TEST_DIR/dest' \
@@ -518,22 +596,26 @@ Co-authored-by: Claude <noreply@anthropic.com>"
         --coauthor-action keep \
         -k <<< 'y' 2>&1"
 
-    # Find the gitmux workspace and check the commit message
-    local workspace=$(echo "$output" | grep -oE '(/var/folders|/tmp)[^ ]*gitmux[^ ]*' | head -1 || echo "")
-    if [[ -n "$workspace" ]] && [[ -d "$workspace" ]]; then
-        cd "$workspace"
-        local gitdir=$(find . -name ".git" -type d 2>/dev/null | head -1)
-        if [[ -n "$gitdir" ]]; then
-            cd "$(dirname "$gitdir")"
-            local branch=$(git branch | grep "update-from-main" | tr -d '* ' | head -1)
-            if [[ -n "$branch" ]]; then
-                local msg=$(git log -1 --format="%B" "$branch" -- file.txt 2>/dev/null || echo "")
-                # Should contain both co-authors
-                [[ "$msg" =~ "Human Dev" ]]
-                [[ "$msg" =~ "Claude" ]]
-            fi
-        fi
-    fi
+    # Debug: show gitmux output if something went wrong
+    echo "gitmux output: $output" >&2
+
+    # Verify gitmux didn't fail catastrophically
+    [[ ! "$output" =~ "errxit" ]]
+
+    # Check the commit message in dest
+    cd "$E2E_TEST_DIR/dest" || return 1
+
+    local branch_name
+    branch_name=$(git branch -a | grep "update-from-main" | head -1 | tr -d ' *')
+
+    [[ -n "$branch_name" ]] || { echo "No update-from-main branch found"; return 1; }
+
+    # Find the "Test commit" message in the history (not the gitmux merge commit)
+    E2E_COMMIT_MSG=$(git log --format="%B" "$branch_name" | grep -A20 "^Test commit" | head -20)
+
+    # Should contain both co-authors
+    [[ "$E2E_COMMIT_MSG" =~ "Human Dev" ]]
+    [[ "$E2E_COMMIT_MSG" =~ "Claude" ]]
 
     teardown_local_repos
 }

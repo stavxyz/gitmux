@@ -184,6 +184,7 @@ for arg in "$@"; do
     '--committer-name')  set -- "$@" '-n' ;;
     '--committer-email') set -- "$@" '-e' ;;
     '--coauthor-action') set -- "$@" '-C' ;;
+    '--dry-run')         set -- "$@" '-D' ;;
     *)                   set -- "$@" "$arg" ;;
   esac
 done
@@ -203,6 +204,7 @@ REV_LIST_FILES="${REV_LIST_FILES:-}"
 INTERACTIVE_REBASE="${INTERACTIVE_REBASE:-false}"
 CREATE_NEW_REPOSITORY="${CREATE_NEW_REPOSITORY:-false}"
 KEEP_TMP_WORKSPACE="${KEEP_TMP_WORKSPACE:-false}"
+DRY_RUN="${DRY_RUN:-false}"
 
 # Don't default these rebase options *yet*
 MERGE_STRATEGY_OPTION_FOR_REBASE="${MERGE_STRATEGY_OPTION_FOR_REBASE:-ours}"
@@ -274,6 +276,9 @@ function show_help()
                                'keep' - Preserve all trailers unchanged
                                (default: 'claude' when author/committer options are used, otherwise 'keep')
                                Can also be set via GITMUX_COAUTHOR_ACTION environment variable.
+  --dry-run                    Preview what changes would be made without actually modifying anything.
+                               Shows: author/committer changes, coauthor-action effects, and affected commits.
+                               Useful for verifying configuration before running. (default: off)
   -k                           Keep the tmp git workspace around instead of cleaning it up (useful for debugging). (default: off)
   -v                           Verbose ( default: off )
   -h                           Print help / usage
@@ -283,7 +288,7 @@ EOF
 # Rebase option related flags are mutually exclusive
 _rebase_option_flags=''
 
-while getopts "h?vr:d:g:t:p:z:b:l:o:X:sickN:E:n:e:C:" OPT; do
+while getopts "h?vr:d:g:t:p:z:b:l:o:X:sickDN:E:n:e:C:" OPT; do
   case "$OPT" in
     r)  source_repository=$OPTARG
       ;;
@@ -312,6 +317,8 @@ while getopts "h?vr:d:g:t:p:z:b:l:o:X:sickN:E:n:e:C:" OPT; do
     c)  CREATE_NEW_REPOSITORY=true
       ;;
     k)  KEEP_TMP_WORKSPACE=true
+      ;;
+    D)  DRY_RUN=true
       ;;
     N)  GITMUX_AUTHOR_NAME=$OPTARG
       ;;
@@ -655,15 +662,14 @@ _msg_filter_script=""
 if [[ "$GITMUX_COAUTHOR_ACTION" == "claude" ]]; then
   # Remove only Claude/Anthropic attribution (preserves human co-authors)
   # Patterns based on common Claude attribution formats:
-  # - Co-authored-by: Claude <...> (with or without space before <)
-  # - Co-authored-by: Claude Code <...> (with or without space before <)
+  # - Co-authored-by: Claude <...> or Claude Code <...>
   # - Co-authored-by: *@anthropic.com
-  # - Generated with [Claude Code]...
-  # - Generated with [Claude]...
+  # - Generated with [Claude Code]... or [Claude]...
+  # Note: "Claude Code" patterns must come before "Claude" to avoid partial matches
   _msg_filter_script='sed -E \
-    -e "/[Cc]o-[Aa]uthored-[Bb]y:[ 	]*[Cc]laude[ 	]*[Cc]ode[ 	]*</d" \
-    -e "/[Cc]o-[Aa]uthored-[Bb]y:[ 	]*[Cc]laude[ 	]*</d" \
-    -e "/[Cc]o-[Aa]uthored-[Bb]y:.*<.*@anthropic\.com>/d" \
+    -e "/[Cc]o-[Aa]uthored-[Bb]y:.*[Cc]laude.*[Cc]ode/d" \
+    -e "/[Cc]o-[Aa]uthored-[Bb]y:.*[Cc]laude/d" \
+    -e "/[Cc]o-[Aa]uthored-[Bb]y:.*@anthropic\.com/d" \
     -e "/[Gg]enerated with.*[Cc]laude/d"'
   log "Claude/Anthropic attribution will be removed from commit messages (human co-authors preserved)"
 elif [[ "$GITMUX_COAUTHOR_ACTION" == "all" ]]; then
@@ -688,6 +694,104 @@ log "git filter-branch --tag-name-filter cat ${_subdirectory_filter_options:-} [
 # WARNING: git-filter-branch has a glut of gotchas...
 # Yeah, we know.
 export FILTER_BRANCH_SQUELCH_WARNING=1
+
+# Dry-run mode: show what would happen without making changes
+if [[ "${DRY_RUN}" == "true" ]]; then
+  echo ""
+  echo "═══════════════════════════════════════════════════════════════════════════════"
+  echo "                              DRY RUN MODE"
+  echo "═══════════════════════════════════════════════════════════════════════════════"
+  echo ""
+  echo "Source: ${source_repository}"
+  echo "Destination: ${destination_repository}"
+  echo "Branch: ${GIT_BRANCH} (${GIT_SHA})"
+  if [[ -n "${subdirectory_filter}" ]]; then
+    echo "Subdirectory filter: ${subdirectory_filter}"
+  fi
+  if [[ -n "${destination_path}" ]]; then
+    echo "Destination path: ${destination_path}"
+  fi
+  echo ""
+
+  # Show author/committer changes
+  if [[ -n "$GITMUX_AUTHOR_NAME" ]] || [[ -n "$GITMUX_COMMITTER_NAME" ]]; then
+    echo "┌─ Author/Committer Override ─────────────────────────────────────────────────┐"
+    if [[ -n "$GITMUX_AUTHOR_NAME" ]]; then
+      echo "│  Author will be changed to: ${GITMUX_AUTHOR_NAME} <${GITMUX_AUTHOR_EMAIL}>"
+    fi
+    if [[ -n "$GITMUX_COMMITTER_NAME" ]]; then
+      echo "│  Committer will be changed to: ${GITMUX_COMMITTER_NAME} <${GITMUX_COMMITTER_EMAIL}>"
+    fi
+    echo "└──────────────────────────────────────────────────────────────────────────────┘"
+    echo ""
+  fi
+
+  # Show coauthor-action effects
+  if [[ -n "$GITMUX_COAUTHOR_ACTION" ]] && [[ "$GITMUX_COAUTHOR_ACTION" != "keep" ]]; then
+    echo "┌─ Co-author Trailer Handling ────────────────────────────────────────────────┐"
+    if [[ "$GITMUX_COAUTHOR_ACTION" == "claude" ]]; then
+      echo "│  Mode: claude (remove Claude/Anthropic attribution only)"
+      echo "│  Will remove:"
+      echo "│    - Co-authored-by: Claude <...>"
+      echo "│    - Co-authored-by: Claude Code <...>"
+      echo "│    - Co-authored-by: *@anthropic.com"
+      echo "│    - Generated with [Claude...]"
+      echo "│  Will preserve: Human co-author trailers"
+    elif [[ "$GITMUX_COAUTHOR_ACTION" == "all" ]]; then
+      echo "│  Mode: all (remove ALL co-author trailers)"
+      echo "│  Will remove:"
+      echo "│    - ALL Co-authored-by: lines"
+      echo "│    - ALL Generated with lines"
+    fi
+    echo "└──────────────────────────────────────────────────────────────────────────────┘"
+    echo ""
+  fi
+
+  # Show sample of commits that would be affected
+  echo "┌─ Commits to be processed ────────────────────────────────────────────────────┐"
+  _commit_count=$(git rev-list --count HEAD)
+  echo "│  Total commits: ${_commit_count}"
+  echo "│"
+  echo "│  Recent commits (up to 10):"
+  git log --oneline -10 | while IFS= read -r line; do
+    echo "│    $line"
+  done
+  echo "└──────────────────────────────────────────────────────────────────────────────┘"
+  echo ""
+
+  # Show sample commit messages with co-author trailers (if any)
+  if [[ -n "$GITMUX_COAUTHOR_ACTION" ]] && [[ "$GITMUX_COAUTHOR_ACTION" != "keep" ]]; then
+    _coauthor_commits=$(git log --all --format="%H" | head -50 | while read -r sha; do
+      git log -1 --format="%B" "$sha" 2>/dev/null | grep -qi "co-authored-by\|generated with" && echo "$sha"
+    done | head -3)
+
+    if [[ -n "$_coauthor_commits" ]]; then
+      echo "┌─ Sample commits with trailers that would be modified ────────────────────────┐"
+      echo "$_coauthor_commits" | while read -r sha; do
+        if [[ -n "$sha" ]]; then
+          echo "│"
+          echo "│  Commit: $(git log -1 --format="%h %s" "$sha" | head -c 70)"
+          echo "│  Trailers found:"
+          git log -1 --format="%B" "$sha" | grep -iE "co-authored-by|generated with" | while IFS= read -r trailer; do
+            echo "│    → $trailer"
+          done
+        fi
+      done
+      echo "└──────────────────────────────────────────────────────────────────────────────┘"
+      echo ""
+    fi
+  fi
+
+  echo "═══════════════════════════════════════════════════════════════════════════════"
+  echo "  To apply these changes, run without --dry-run"
+  echo "═══════════════════════════════════════════════════════════════════════════════"
+  echo ""
+
+  # Cleanup and exit
+  cd "${_orig_pwd}" || true
+  rm -rf "${TMP_WORKSPACE}"
+  exit 0
+fi
 
 # Build the filter-branch command dynamically based on which filters are needed
 _filter_branch_cmd="git filter-branch --tag-name-filter cat"
