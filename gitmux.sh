@@ -665,7 +665,10 @@ if [[ "$GITMUX_COAUTHOR_ACTION" == "claude" ]]; then
   # - Co-authored-by: Claude <...> or Claude Code <...>
   # - Co-authored-by: *@anthropic.com
   # - Generated with [Claude Code]... or [Claude]...
-  # Note: "Claude Code" patterns must come before "Claude" to avoid partial matches
+  # Note: Patterns are ordered most-specific-first to ensure proper matching.
+  # The "Claude Code" pattern uses .*Claude.*Code.* which is intentionally broad
+  # to catch variations like "Claude AI Code" - false positives are unlikely
+  # since real human names won't contain both "Claude" and "Code".
   _msg_filter_script='sed -E \
     -e "/[Cc]o-[Aa]uthored-[Bb]y:.*[Cc]laude.*[Cc]ode/d" \
     -e "/[Cc]o-[Aa]uthored-[Bb]y:.*[Cc]laude/d" \
@@ -788,8 +791,7 @@ if [[ "${DRY_RUN}" == "true" ]]; then
   echo "═══════════════════════════════════════════════════════════════════════════════"
   echo ""
 
-  # Cleanup and exit
-  cd / || true
+  # Cleanup and exit (absolute path, no cd needed)
   rm -rf "${gitmux_TMP_WORKSPACE}"
   exit 0
 fi
@@ -808,18 +810,23 @@ fi
 if [ -n "${rev_list_files}" ]; then
   log "Targeting paths/revisions: ${rev_list_files}"
   # shellcheck disable=SC2086  # Word splitting is intentional: _subdirectory_filter_options
-  # and rev_list_files contain multiple space-separated arguments that must expand separately
+  # and rev_list_files contain multiple space-separated arguments that must expand separately.
+  # NOTE: File paths containing spaces are not supported due to this word splitting.
   _filter_branch_cmd="${_filter_branch_cmd} ${_subdirectory_filter_options} --index-filter \"
     git read-tree --empty
     git reset \\\$GIT_COMMIT -- ${rev_list_files}
    \" -- --all -- ${rev_list_files}"
   log "Running: ${_filter_branch_cmd}"
+  # SAFETY: eval is safe here because all user-provided values (author/committer names/emails)
+  # are validated by _validate_safe_string() which rejects shell metacharacters.
+  # The filter scripts use only these validated values and git's own variables.
   eval "${_filter_branch_cmd}"
 else
   # shellcheck disable=SC2086  # Word splitting is intentional: _subdirectory_filter_options
   # contains multiple space-separated arguments (e.g., "--subdirectory-filter path")
   _filter_branch_cmd="${_filter_branch_cmd} ${_subdirectory_filter_options}"
   log "Running: ${_filter_branch_cmd}"
+  # SAFETY: eval is safe here - see comment above regarding input validation
   eval "${_filter_branch_cmd}"
 fi
 
