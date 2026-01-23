@@ -390,6 +390,27 @@ if [[ -z "$GITMUX_COAUTHOR_ACTION" ]]; then
   fi
 fi
 
+# Sanitize author/committer values to prevent shell injection
+# These values are used in filter-branch scripts executed via eval
+# Reject values containing shell metacharacters that could enable injection
+_validate_safe_string() {
+  local value="$1"
+  local field_name="$2"
+  # Reject strings containing shell metacharacters: ' " $ ` \ ; | & ( ) < > newline
+  if [[ "$value" =~ [\'\"\$\`\\\;\|\&\(\)\<\>] ]] || [[ "$value" == *$'\n'* ]]; then
+    errxit "${field_name} contains invalid characters (shell metacharacters are not allowed)"
+  fi
+}
+
+if [[ -n "$GITMUX_AUTHOR_NAME" ]]; then
+  _validate_safe_string "$GITMUX_AUTHOR_NAME" "--author-name"
+  _validate_safe_string "$GITMUX_AUTHOR_EMAIL" "--author-email"
+fi
+if [[ -n "$GITMUX_COMMITTER_NAME" ]]; then
+  _validate_safe_string "$GITMUX_COMMITTER_NAME" "--committer-name"
+  _validate_safe_string "$GITMUX_COMMITTER_EMAIL" "--committer-email"
+fi
+
 #
 # </Argument validation.>
 #
@@ -634,14 +655,14 @@ _msg_filter_script=""
 if [[ "$GITMUX_COAUTHOR_ACTION" == "claude" ]]; then
   # Remove only Claude/Anthropic attribution (preserves human co-authors)
   # Patterns based on common Claude attribution formats:
-  # - Co-authored-by: Claude <...>
-  # - Co-authored-by: Claude Code <...>
+  # - Co-authored-by: Claude <...> (with or without space before <)
+  # - Co-authored-by: Claude Code <...> (with or without space before <)
   # - Co-authored-by: *@anthropic.com
   # - Generated with [Claude Code]...
   # - Generated with [Claude]...
   _msg_filter_script='sed -E \
-    -e "/[Cc]o-[Aa]uthored-[Bb]y:[ 	]*[Cc]laude[ 	]*</d" \
     -e "/[Cc]o-[Aa]uthored-[Bb]y:[ 	]*[Cc]laude[ 	]*[Cc]ode[ 	]*</d" \
+    -e "/[Cc]o-[Aa]uthored-[Bb]y:[ 	]*[Cc]laude[ 	]*</d" \
     -e "/[Cc]o-[Aa]uthored-[Bb]y:.*<.*@anthropic\.com>/d" \
     -e "/[Gg]enerated with.*[Cc]laude/d"'
   log "Claude/Anthropic attribution will be removed from commit messages (human co-authors preserved)"
