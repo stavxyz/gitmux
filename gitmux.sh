@@ -395,9 +395,12 @@ elif [[ -z "$GITMUX_COMMITTER_NAME" ]] && [[ -n "$GITMUX_COMMITTER_EMAIL" ]]; th
   errxit "--committer-email requires --committer-name to also be specified"
 fi
 
-# Validate coauthor-action value
-if [[ -n "$GITMUX_COAUTHOR_ACTION" ]] && [[ "$GITMUX_COAUTHOR_ACTION" != "claude" ]] && [[ "$GITMUX_COAUTHOR_ACTION" != "all" ]] && [[ "$GITMUX_COAUTHOR_ACTION" != "keep" ]]; then
-  errxit "--coauthor-action must be 'claude', 'all', or 'keep', got: ${GITMUX_COAUTHOR_ACTION}"
+# Validate coauthor-action value (must be one of: claude, all, keep)
+if [[ -n "$GITMUX_COAUTHOR_ACTION" ]]; then
+  case "$GITMUX_COAUTHOR_ACTION" in
+    claude|all|keep) ;; # Valid values
+    *) errxit "--coauthor-action must be 'claude', 'all', or 'keep', got: ${GITMUX_COAUTHOR_ACTION}" ;;
+  esac
 fi
 
 # Default coauthor-action to 'claude' when author/committer options are used
@@ -686,12 +689,14 @@ if [[ "$GITMUX_COAUTHOR_ACTION" == "claude" ]]; then
     -e "/[Gg]enerated with.*[Cc]laude/d"'
   log "Claude/Anthropic attribution will be removed from commit messages (human co-authors preserved)"
 elif [[ "$GITMUX_COAUTHOR_ACTION" == "all" ]]; then
-  # Remove ALL Co-authored-by lines and Generated-with signatures
+  # Remove ALL Co-authored-by lines and AI-tool Generated-with signatures
   # Note: No ^ anchor - trailers may have leading whitespace (consistent with claude mode)
+  # "Generated with" pattern is targeted at AI tool signatures (contains brackets like [Claude])
+  # to avoid matching unrelated uses of "generated with" in commit messages
   _msg_filter_script='sed -E \
     -e "/[Cc]o-[Aa]uthored-[Bb]y:/d" \
-    -e "/[Gg]enerated with/d"'
-  log "All Co-authored-by trailers and Generated-with lines will be removed from commit messages"
+    -e "/[Gg]enerated with[[:space:]]*\[/d"'
+  log "All Co-authored-by trailers and Generated-with signatures will be removed from commit messages"
 fi
 
 # git filter-branch can take `git rev-list` options for
