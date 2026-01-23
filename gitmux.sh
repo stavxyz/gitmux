@@ -259,24 +259,24 @@ function show_help()
   -g <gitref>                  Git ref for the [remote] source repository. (default: null, which just uses the HEAD of the default branch, probably 'trunk (or master)', after cloning.) Can be any value valid for \`git checkout <ref>\` e.g. a branch, commit, or tag.
   -p <destination_path>        Destination path for the filtered repository content ( default: '/' which places the repository content into the root of the destination repository. e.g. to place source repository's /app directory content into the /lib directory of your destination repository, supply -p lib )
   -b <destination_branch>      Destination (a.k.a. base) branch in destination repository against which, changes will be rebased. Further, if [-s] is supplied, the resulting content will be submitted with this destination branch as the target (base) for the pull request. (Default: trunk)
-  -l <rev-list options>        Options passed to git rev-list during \`git filter-branch\`. Can be used to specify individual files to be brought into the [new] repository. e.g. -l '--all -- file1.txt file2.txt' For more info see git's documentation for git filter-branch under the parameters for <rev-list options>…
+  -l <rev-list options>        Options passed to git rev-list during \`git filter-branch\`. Can be used to specify individual files to be brought into the [new] repository. e.g. -l '--all -- file1.txt file2.txt' Note: file paths with spaces are not supported. For more info see git's documentation for git filter-branch under the parameters for <rev-list options>…
   -o <rebase_options>          Options to supply to \`git rebase\`. If set and includes --interactive or -i, this script will drop you into the workspace to complete the workflow manually (Note: cannot use with -X)
   -X <option>                  Rebase strategy option, e.g. ours/patience. Defaults to 'ours' (Note: cannot use with -o)
   -i                           Perform an interactive rebase. If you use this option you will need to push your resulting branch to the remote named 'destination' and submit a pull request manually.
   -s                           Submit a pull request to your destination. Requires \`gh\`. Only valid for non-local destination repositories. (default: off)
   -c                           Create the destination repository if it does not exist. Requires \`gh\`. (default: off)
   -z                           Add this team to your destination repository. Use <org>/<team> notation e.g. engineering-org/firmware-team May be specified multiple times. Requires \`gh\`. Only valid for non-local destination repositories.
-  --author-name <name>         Override author name for all transferred commits. Requires --author-email. Can also be set via GITMUX_AUTHOR_NAME environment variable.
-  --author-email <email>       Override author email for all transferred commits. Requires --author-name. Can also be set via GITMUX_AUTHOR_EMAIL environment variable.
-  --committer-name <name>      Override committer name for all transferred commits. Requires --committer-email. Can also be set via GITMUX_COMMITTER_NAME environment variable.
-  --committer-email <email>    Override committer email for all transferred commits. Requires --committer-name. Can also be set via GITMUX_COMMITTER_EMAIL environment variable.
-  --coauthor-action <action>   Action for Co-authored-by trailers and Claude attribution in commit messages:
+  -N, --author-name <name>     Override author name for all transferred commits. Requires --author-email. Can also be set via GITMUX_AUTHOR_NAME environment variable.
+  -E, --author-email <email>   Override author email for all transferred commits. Requires --author-name. Can also be set via GITMUX_AUTHOR_EMAIL environment variable.
+  -n, --committer-name <name>  Override committer name for all transferred commits. Requires --committer-email. Can also be set via GITMUX_COMMITTER_NAME environment variable.
+  -e, --committer-email <email> Override committer email for all transferred commits. Requires --committer-name. Can also be set via GITMUX_COMMITTER_EMAIL environment variable.
+  -C, --coauthor-action <action> Action for Co-authored-by trailers and Claude attribution in commit messages:
                                'claude' - Remove only Claude/Anthropic attribution (Co-authored-by and Generated-with lines)
                                'all' - Remove ALL Co-authored-by trailers and Generated-with lines
                                'keep' - Preserve all trailers unchanged
                                (default: 'claude' when author/committer options are used, otherwise 'keep')
                                Can also be set via GITMUX_COAUTHOR_ACTION environment variable.
-  --dry-run                    Preview what changes would be made without actually modifying anything.
+  -D, --dry-run                Preview what changes would be made without actually modifying anything.
                                Shows: author/committer changes, coauthor-action effects, and affected commits.
                                Useful for verifying configuration before running. (default: off)
   -k                           Keep the tmp git workspace around instead of cleaning it up (useful for debugging). (default: off)
@@ -666,11 +666,10 @@ if [[ "$GITMUX_COAUTHOR_ACTION" == "claude" ]]; then
   # - Co-authored-by: *@anthropic.com
   # - Generated with [Claude Code]... or [Claude]...
   # Note: Patterns are ordered most-specific-first to ensure proper matching.
-  # The "Claude Code" pattern uses .*Claude.*Code.* which is intentionally broad
-  # to catch variations like "Claude AI Code" - false positives are unlikely
-  # since real human names won't contain both "Claude" and "Code".
+  # The "Claude Code" pattern requires whitespace between the words to avoid
+  # false positives like "Claudette McCode".
   _msg_filter_script='sed -E \
-    -e "/[Cc]o-[Aa]uthored-[Bb]y:.*[Cc]laude.*[Cc]ode/d" \
+    -e "/[Cc]o-[Aa]uthored-[Bb]y:[[:space:]]*[Cc]laude[[:space:]]+[Cc]ode/d" \
     -e "/[Cc]o-[Aa]uthored-[Bb]y:.*[Cc]laude/d" \
     -e "/[Cc]o-[Aa]uthored-[Bb]y:.*@anthropic\.com/d" \
     -e "/[Gg]enerated with.*[Cc]laude/d"'
@@ -774,7 +773,7 @@ if [[ "${DRY_RUN}" == "true" ]]; then
       echo "$_coauthor_commits" | while read -r sha; do
         if [[ -n "$sha" ]]; then
           echo "│"
-          echo "│  Commit: $(git log -1 --format="%h %s" "$sha" | head -c 70)"
+          echo "│  Commit: $(git log -1 --format="%h %s" "$sha" | cut -c1-70)"
           echo "│  Trailers found:"
           git log -1 --format="%B" "$sha" | grep -iE "co-authored-by|generated with" | while IFS= read -r trailer; do
             echo "│    → $trailer"
