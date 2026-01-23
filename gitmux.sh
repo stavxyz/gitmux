@@ -272,10 +272,14 @@ function show_help()
   -s                           Submit a pull request to your destination. Requires \`gh\`. Only valid for non-local destination repositories. (default: off)
   -c                           Create the destination repository if it does not exist. Requires \`gh\`. (default: off)
   -z                           Add this team to your destination repository. Use <org>/<team> notation e.g. engineering-org/firmware-team May be specified multiple times. Requires \`gh\`. Only valid for non-local destination repositories.
-  -N, --author-name <name>     Override author name for all transferred commits. Requires --author-email. Can also be set via GITMUX_AUTHOR_NAME environment variable.
-  -E, --author-email <email>   Override author email for all transferred commits. Requires --author-name. Can also be set via GITMUX_AUTHOR_EMAIL environment variable.
-  -n, --committer-name <name>  Override committer name for all transferred commits. Requires --committer-email. Can also be set via GITMUX_COMMITTER_NAME environment variable.
-  -e, --committer-email <email> Override committer email for all transferred commits. Requires --committer-name. Can also be set via GITMUX_COMMITTER_EMAIL environment variable.
+  -N, --author-name <name>       Override author name for all transferred commits. Requires --author-email.
+                                 Can also be set via GITMUX_AUTHOR_NAME environment variable.
+  -E, --author-email <email>     Override author email for all transferred commits. Requires --author-name.
+                                 Can also be set via GITMUX_AUTHOR_EMAIL environment variable.
+  -n, --committer-name <name>    Override committer name for all transferred commits. Requires --committer-email.
+                                 Can also be set via GITMUX_COMMITTER_NAME environment variable.
+  -e, --committer-email <email>  Override committer email for all transferred commits. Requires --committer-name.
+                                 Can also be set via GITMUX_COMMITTER_EMAIL environment variable.
   -C, --coauthor-action <action> Action for Co-authored-by trailers and Claude attribution in commit messages:
                                'claude' - Remove only Claude/Anthropic attribution (Co-authored-by and Generated-with lines)
                                'all' - Remove ALL Co-authored-by trailers and Generated-with lines
@@ -797,12 +801,8 @@ if [[ "${DRY_RUN}" == "true" ]]; then
   echo "═══════════════════════════════════════════════════════════════════════════════"
   echo ""
 
-  # Cleanup and exit, respecting KEEP_TMP_WORKSPACE like the main cleanup() function
-  if [[ "${KEEP_TMP_WORKSPACE:-false}" == "true" ]]; then
-    echo "Keeping workspace at: ${gitmux_TMP_WORKSPACE}"
-  else
-    rm -rf "${gitmux_TMP_WORKSPACE}"
-  fi
+  # Cleanup and exit (reuse cleanup() to avoid duplicating KEEP_TMP_WORKSPACE logic)
+  cleanup
   exit 0
 fi
 
