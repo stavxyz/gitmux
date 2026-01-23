@@ -90,6 +90,22 @@ make run
   -s
 ```
 
+### Override Author and Clean Up AI Attribution
+
+When syncing AI-assisted code, you may want to rewrite authorship and remove AI co-author trailers:
+
+```bash
+./gitmux.sh \
+  -r https://github.com/source-owner/source-repo \
+  -t https://github.com/dest-owner/dest-repo \
+  --author-name "Your Name" \
+  --author-email "you@example.com" \
+  --coauthor-action claude \
+  -s
+```
+
+This rewrites all commits to show you as the author while removing Claude/Anthropic `Co-authored-by` and `Generated with` lines (human co-authors are preserved).
+
 ## Usage
 
 ```
@@ -118,11 +134,33 @@ GitHub:
   -s                  Submit PR automatically (requires gh)
   -z <org/team>       Add team to destination repo (repeatable)
 
+Author/Committer Override:
+  --author-name       Override author name (requires --author-email)
+  --author-email      Override author email (requires --author-name)
+  --committer-name    Override committer name (requires --committer-email)
+  --committer-email   Override committer email (requires --committer-name)
+  --coauthor-action   Handle Co-authored-by trailers: claude|all|keep
+                      - claude: Remove Claude/Anthropic attribution only (default when overriding)
+                      - all: Remove all Co-authored-by trailers
+                      - keep: Preserve all trailers (default otherwise)
+
 Other:
   -k                  Keep temp workspace (for debugging)
   -v                  Verbose output
   -h                  Show help
 ```
+
+### Environment Variables
+
+All author/committer options can also be set via environment variables:
+
+| Option | Environment Variable |
+|--------|---------------------|
+| `--author-name` | `GITMUX_AUTHOR_NAME` |
+| `--author-email` | `GITMUX_AUTHOR_EMAIL` |
+| `--committer-name` | `GITMUX_COMMITTER_NAME` |
+| `--committer-email` | `GITMUX_COMMITTER_EMAIL` |
+| `--coauthor-action` | `GITMUX_COAUTHOR_ACTION` |
 
 ## How It Works
 
@@ -177,6 +215,14 @@ A: gitmux uses the rebase strategy specified by `-X` (default: `ours`). For comp
 **Q: Can I run gitmux multiple times?**
 
 A: Yes. gitmux is designed for repeated runs. Each run creates a new PR with the latest changes from the source.
+
+**Q: How do I remove AI-generated attribution from commits?**
+
+A: Use `--coauthor-action claude` to remove Claude/Anthropic attribution while preserving human co-authors. Use `--coauthor-action all` to remove all co-author trailers. Combine with `--author-name` and `--author-email` to also rewrite commit authorship.
+
+**Q: Can I set author/committer options via environment variables?**
+
+A: Yes. All author/committer options have corresponding environment variables: `GITMUX_AUTHOR_NAME`, `GITMUX_AUTHOR_EMAIL`, `GITMUX_COMMITTER_NAME`, `GITMUX_COMMITTER_EMAIL`, and `GITMUX_COAUTHOR_ACTION`.
 
 ## Contributing
 
