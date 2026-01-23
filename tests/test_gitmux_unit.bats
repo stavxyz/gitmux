@@ -349,10 +349,12 @@ teardown() {
 # =============================================================================
 
 setup_local_repos() {
-    # Configure global git identity for CI environments (gitmux temp workspace needs this)
-    # This is safe because bats tests run in isolation
-    git config --global user.name "Test User"
-    git config --global user.email "test@example.com"
+    # Set git identity via environment variables for CI environments
+    # This avoids modifying global git config and is isolated to this test process
+    export GIT_AUTHOR_NAME="Test User"
+    export GIT_AUTHOR_EMAIL="test@example.com"
+    export GIT_COMMITTER_NAME="Test User"
+    export GIT_COMMITTER_EMAIL="test@example.com"
 
     # Create temp directory for test repos
     E2E_TEST_DIR=$(mktemp -d)
