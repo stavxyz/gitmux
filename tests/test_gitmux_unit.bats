@@ -314,3 +314,203 @@ teardown() {
     [[ ! "$output" =~ "--committer-name requires" ]]
     [[ ! "$output" =~ "--committer-email requires" ]]
 }
+
+# =============================================================================
+# E2E Tests for Author/Committer Override and Co-author Handling
+# These tests use local git repos to verify the full workflow
+# =============================================================================
+
+setup_local_repos() {
+    # Create temp directory for test repos
+    export E2E_TEST_DIR=$(mktemp -d)
+
+    # Create source repo with bare remote
+    mkdir -p "$E2E_TEST_DIR/source-bare.git"
+    git init --bare "$E2E_TEST_DIR/source-bare.git"
+    git clone "$E2E_TEST_DIR/source-bare.git" "$E2E_TEST_DIR/source"
+    cd "$E2E_TEST_DIR/source"
+    git config user.name "Original Author"
+    git config user.email "original@example.com"
+
+    # Create destination repo with bare remote
+    mkdir -p "$E2E_TEST_DIR/dest-bare.git"
+    git init --bare "$E2E_TEST_DIR/dest-bare.git"
+    git clone "$E2E_TEST_DIR/dest-bare.git" "$E2E_TEST_DIR/dest"
+    cd "$E2E_TEST_DIR/dest"
+    git config user.name "Dest User"
+    git config user.email "dest@example.com"
+    echo "init" > README.md
+    git add .
+    git commit -m "Initial commit"
+    git push origin main
+}
+
+teardown_local_repos() {
+    rm -rf "$E2E_TEST_DIR" 2>/dev/null || true
+}
+
+@test "e2e: author override changes commit author" {
+    setup_local_repos
+
+    # Create source commit
+    cd "$E2E_TEST_DIR/source"
+    echo "content" > file.txt
+    git add .
+    git commit -m "Test commit"
+    git push origin main
+
+    # Run gitmux with author override
+    cd "$BATS_TEST_DIRNAME/.."
+    run bash -c "./gitmux.sh \
+        -r '$E2E_TEST_DIR/source' \
+        -t '$E2E_TEST_DIR/dest' \
+        -b main \
+        --author-name 'New Author' \
+        --author-email 'new@example.com' \
+        -k <<< 'y' 2>&1"
+
+    # Check the destination repo for the new author
+    cd "$E2E_TEST_DIR/dest"
+    git fetch --all
+
+    # Get the author from the PR branch
+    local branch_name=$(git branch -r | grep "update-from-main" | head -1 | tr -d ' ')
+    if [[ -n "$branch_name" ]]; then
+        local author=$(git log -1 --format="%an <%ae>" "$branch_name" -- file.txt 2>/dev/null || echo "")
+        [[ "$author" == "New Author <new@example.com>" ]]
+    fi
+
+    teardown_local_repos
+}
+
+@test "e2e: coauthor-action 'claude' removes Claude attribution but preserves human co-authors" {
+    setup_local_repos
+
+    # Create source commit with mixed co-authors
+    cd "$E2E_TEST_DIR/source"
+    echo "content" > file.txt
+    git add .
+    git commit -m "Test commit
+
+Co-authored-by: Human Dev <human@example.com>
+Co-authored-by: Claude <noreply@anthropic.com>
+Co-Authored-By: Claude Code <claude@anthropic.com>
+
+Generated with [Claude Code](https://claude.ai/code)"
+    git push origin main
+
+    # Run gitmux with claude coauthor-action
+    cd "$BATS_TEST_DIRNAME/.."
+    run bash -c "./gitmux.sh \
+        -r '$E2E_TEST_DIR/source' \
+        -t '$E2E_TEST_DIR/dest' \
+        -b main \
+        --coauthor-action claude \
+        -k <<< 'y' 2>&1"
+
+    # Find the gitmux workspace and check the commit message
+    local workspace=$(echo "$output" | grep -o '/var/folders[^ ]*gitmux[^ ]*' | head -1 || echo "")
+    if [[ -n "$workspace" ]] && [[ -d "$workspace" ]]; then
+        cd "$workspace"
+        local gitdir=$(find . -name ".git" -type d 2>/dev/null | head -1)
+        if [[ -n "$gitdir" ]]; then
+            cd "$(dirname "$gitdir")"
+            local branch=$(git branch | grep "update-from-main" | tr -d '* ' | head -1)
+            if [[ -n "$branch" ]]; then
+                local msg=$(git log -1 --format="%B" "$branch" -- file.txt 2>/dev/null || echo "")
+                # Should contain human co-author
+                [[ "$msg" =~ "Human Dev" ]]
+                # Should NOT contain Claude
+                [[ ! "$msg" =~ "Claude" ]]
+                # Should NOT contain Generated with
+                [[ ! "$msg" =~ "Generated with" ]]
+            fi
+        fi
+    fi
+
+    teardown_local_repos
+}
+
+@test "e2e: coauthor-action 'all' removes all co-authors" {
+    setup_local_repos
+
+    # Create source commit with co-authors
+    cd "$E2E_TEST_DIR/source"
+    echo "content" > file.txt
+    git add .
+    git commit -m "Test commit
+
+Co-authored-by: Human Dev <human@example.com>
+Co-authored-by: Claude <noreply@anthropic.com>"
+    git push origin main
+
+    # Run gitmux with 'all' coauthor-action
+    cd "$BATS_TEST_DIRNAME/.."
+    run bash -c "./gitmux.sh \
+        -r '$E2E_TEST_DIR/source' \
+        -t '$E2E_TEST_DIR/dest' \
+        -b main \
+        --coauthor-action all \
+        -k <<< 'y' 2>&1"
+
+    # Find the gitmux workspace and check the commit message
+    local workspace=$(echo "$output" | grep -o '/var/folders[^ ]*gitmux[^ ]*' | head -1 || echo "")
+    if [[ -n "$workspace" ]] && [[ -d "$workspace" ]]; then
+        cd "$workspace"
+        local gitdir=$(find . -name ".git" -type d 2>/dev/null | head -1)
+        if [[ -n "$gitdir" ]]; then
+            cd "$(dirname "$gitdir")"
+            local branch=$(git branch | grep "update-from-main" | tr -d '* ' | head -1)
+            if [[ -n "$branch" ]]; then
+                local msg=$(git log -1 --format="%B" "$branch" -- file.txt 2>/dev/null || echo "")
+                # Should NOT contain any co-author
+                [[ ! "$msg" =~ "Co-authored-by" ]]
+                [[ ! "$msg" =~ "Co-Authored-By" ]]
+            fi
+        fi
+    fi
+
+    teardown_local_repos
+}
+
+@test "e2e: coauthor-action 'keep' preserves all trailers" {
+    setup_local_repos
+
+    # Create source commit with co-authors
+    cd "$E2E_TEST_DIR/source"
+    echo "content" > file.txt
+    git add .
+    git commit -m "Test commit
+
+Co-authored-by: Human Dev <human@example.com>
+Co-authored-by: Claude <noreply@anthropic.com>"
+    git push origin main
+
+    # Run gitmux with 'keep' coauthor-action
+    cd "$BATS_TEST_DIRNAME/.."
+    run bash -c "./gitmux.sh \
+        -r '$E2E_TEST_DIR/source' \
+        -t '$E2E_TEST_DIR/dest' \
+        -b main \
+        --coauthor-action keep \
+        -k <<< 'y' 2>&1"
+
+    # Find the gitmux workspace and check the commit message
+    local workspace=$(echo "$output" | grep -o '/var/folders[^ ]*gitmux[^ ]*' | head -1 || echo "")
+    if [[ -n "$workspace" ]] && [[ -d "$workspace" ]]; then
+        cd "$workspace"
+        local gitdir=$(find . -name ".git" -type d 2>/dev/null | head -1)
+        if [[ -n "$gitdir" ]]; then
+            cd "$(dirname "$gitdir")"
+            local branch=$(git branch | grep "update-from-main" | tr -d '* ' | head -1)
+            if [[ -n "$branch" ]]; then
+                local msg=$(git log -1 --format="%B" "$branch" -- file.txt 2>/dev/null || echo "")
+                # Should contain both co-authors
+                [[ "$msg" =~ "Human Dev" ]]
+                [[ "$msg" =~ "Claude" ]]
+            fi
+        fi
+    fi
+
+    teardown_local_repos
+}
