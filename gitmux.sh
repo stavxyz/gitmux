@@ -788,7 +788,7 @@ if [[ "${DRY_RUN}" == "true" ]]; then
   echo ""
 
   # Cleanup and exit
-  cd "${_orig_pwd}" || true
+  cd / || true
   rm -rf "${TMP_WORKSPACE}"
   exit 0
 fi
