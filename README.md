@@ -15,6 +15,9 @@ gitmux extracts files or directories from a source repository into a destination
 - **Safe by Design** - Changes go through pull requests, never direct pushes
 - **Repeatable** - Run multiple times to sync incremental updates
 - **Flexible Rebase** - Multiple strategies (ours/theirs/patience) for conflict resolution
+- **Author Rewriting** - Override commit author/committer across entire history
+- **AI Attribution Cleanup** - Remove Claude/Anthropic co-author trailers while preserving human contributors
+- **Dry-Run Mode** - Preview all changes before modifying anything
 
 ## Installation
 
@@ -106,6 +109,21 @@ When syncing AI-assisted code, you may want to rewrite authorship and remove AI 
 
 This rewrites all commits to show you as the author while removing Claude/Anthropic `Co-authored-by` and `Generated with` lines (human co-authors are preserved).
 
+### Preview Changes with Dry-Run
+
+Before running a sync, preview what would happen:
+
+```bash
+./gitmux.sh \
+  -r https://github.com/source-owner/source-repo \
+  -t https://github.com/dest-owner/dest-repo \
+  --author-name "Your Name" \
+  --author-email "you@example.com" \
+  --dry-run
+```
+
+This shows you exactly which commits would be affected and what changes would be made, without modifying anything.
+
 ## Usage
 
 ```
@@ -136,15 +154,16 @@ GitHub:
   -z <org/team>       Add team to destination repo (repeatable)
 
 Author/Committer Override:
-  --author-name       Override author name (requires --author-email)
-  --author-email      Override author email (requires --author-name)
-  --committer-name    Override committer name (requires --committer-email)
-  --committer-email   Override committer email (requires --committer-name)
-  --coauthor-action   Handle Co-authored-by trailers: claude|all|keep
-                      - claude: Remove Claude/Anthropic attribution only (default when overriding)
-                      - all: Remove all Co-authored-by trailers
-                      - keep: Preserve all trailers (default otherwise)
-  --dry-run           Preview changes without modifying anything
+  -N, --author-name       Override author name (requires --author-email)
+  -E, --author-email      Override author email (requires --author-name)
+  -n, --committer-name    Override committer name (requires --committer-email)
+  -e, --committer-email   Override committer email (requires --committer-name)
+  -C, --coauthor-action   Handle Co-authored-by trailers: claude|all|keep
+                          - claude: Remove Claude/Anthropic attribution only
+                                    (default when author/committer options used)
+                          - all: Remove all Co-authored-by trailers
+                          - keep: Preserve all trailers (default otherwise)
+  -D, --dry-run           Preview changes without modifying anything
 
 Other:
   -k                  Keep temp workspace (for debugging)
@@ -225,6 +244,14 @@ A: Use `--coauthor-action claude` to remove Claude/Anthropic attribution while p
 **Q: Can I set author/committer options via environment variables?**
 
 A: Yes. All author/committer options have corresponding environment variables: `GITMUX_AUTHOR_NAME`, `GITMUX_AUTHOR_EMAIL`, `GITMUX_COMMITTER_NAME`, `GITMUX_COMMITTER_EMAIL`, and `GITMUX_COAUTHOR_ACTION`.
+
+**Q: How can I preview what gitmux will do before running it?**
+
+A: Use `--dry-run` (or `-D`). This shows you the source/destination, which commits would be affected, what author/committer changes would be made, and which co-author trailers would be removed—all without modifying anything.
+
+**Q: What's the difference between author and committer?**
+
+A: In git, the **author** is who wrote the code, and the **committer** is who applied the commit. They're often the same person, but differ in scenarios like cherry-picking or rebasing. Use `--author-*` to change who wrote the code; use `--committer-*` to change who committed it.
 
 ## Contributing
 
