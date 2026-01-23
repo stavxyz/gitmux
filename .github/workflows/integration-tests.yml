@@ -1,0 +1,71 @@
+name: Integration Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+  # Manual trigger
+  workflow_dispatch:
+
+jobs:
+  integration-tests:
+    name: GitHub Integration Tests
+    runs-on: ubuntu-latest
+    # Only run on internal PRs (not forks) since forks can't access secrets
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check for GH_TOKEN
+        id: check-token
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          if [[ -z "${GH_TOKEN}" ]]; then
+            echo "has_token=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::GH_TOKEN secret is not configured - skipping integration tests"
+            echo ""
+            echo "To enable integration tests, add a GH_TOKEN secret to this repository:"
+            echo "  1. Go to Settings > Secrets and variables > Actions"
+            echo "  2. Click 'New repository secret'"
+            echo "  3. Name: GH_TOKEN"
+            echo "  4. Value: A personal access token with 'repo' and 'delete_repo' scopes"
+          else
+            echo "has_token=true" >> "$GITHUB_OUTPUT"
+            echo "GH_TOKEN is configured"
+          fi
+
+      - name: Configure git
+        if: steps.check-token.outputs.has_token == 'true'
+        run: |
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
+
+      - name: Run integration tests
+        if: steps.check-token.outputs.has_token == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          GH_HOST: github.com
+          GITHUB_OWNER: ${{ github.repository_owner }}
+        run: |
+          echo "Running integration tests..."
+          echo "Test repos will be created under: ${GITHUB_OWNER}"
+          ./test_gitmux.sh
+
+      - name: Cleanup test repositories (on failure)
+        if: failure() && steps.check-token.outputs.has_token == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          echo "Cleaning up any leftover test repositories..."
+          repos=$(gh repo list --limit 100 --json nameWithOwner,name --jq '.[]|select(.name|startswith("gitmux_test_")).nameWithOwner' 2>/dev/null || echo "")
+          if [[ -n "$repos" ]]; then
+            for r in $repos; do
+              echo "Deleting leftover test repo: $r"
+              gh api --method DELETE "repos/$r" || true
+            done
+          fi
