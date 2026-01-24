@@ -46,10 +46,10 @@ chmod +x gitmux.sh
 
 ```bash
 # Build the image
-make build
+just docker-build
 
 # Run interactively
-make run
+just docker-run
 ```
 
 ## Quick Start
