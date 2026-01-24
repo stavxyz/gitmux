@@ -76,8 +76,9 @@ errcleanup() {
 trap 'errcleanup ${LINENO} ${FUNCNAME:-}' ERR
 
 rands() {
-  # Usage: rands
-  echo $RANDOM$RANDOM | tr '0-9' '[:lower:]'
+  # Usage: rands - generate random lowercase string from $RANDOM
+  # Note: tr '0-9' '[:lower:]' works on BSD but not GNU tr, so use explicit mapping
+  echo $RANDOM$RANDOM | tr '0-9' 'a-j'
 }
 
 REPO_REGEX='s/(.*:\/\/|^git@)(.*)([\/:]{1})([a-zA-Z0-9_\.-]{1,})([\/]{1})([a-zA-Z0-9_\.-]{1,}$)'
