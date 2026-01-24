@@ -14,7 +14,7 @@ gitmux extracts files or directories from a source repository into a destination
 - **Selective Extraction** - Fork entire repos or just specific files/directories
 - **Safe by Design** - Changes go through pull requests, never direct pushes
 - **Repeatable** - Run multiple times to sync incremental updates
-- **Flexible Rebase** - Multiple strategies (ours/theirs/patience) for conflict resolution
+- **Flexible Rebase** - Multiple strategies for conflict resolution ([see below](#rebase-strategies))
 - **Author Rewriting** - Override commit author/committer across entire history
 - **AI Attribution Cleanup** - Remove Claude/Anthropic co-author trailers while preserving human contributors
 - **Dry-Run Mode** - Preview all changes before modifying anything
@@ -214,6 +214,76 @@ All author/committer options can also be set via environment variables:
 - **History preservers** - Redo a copy-paste with proper git history
 - **Git power users** - Explore rebase strategies and conflict resolution
 - **Automation bots** - Keep downstream mirrors in sync via PRs
+
+## Rebase Strategies
+
+When gitmux rebases the source history onto the destination, conflicts can occur if the same lines were changed in both places. The `-X` option controls how these conflicts are resolved automatically.
+
+### Understanding the Strategies
+
+| Strategy | When a conflict occurs... | Best for |
+|----------|--------------------------|----------|
+| `ours` (default) | Keep the destination's version | Protecting existing destination changes |
+| `theirs` | Keep the source's version | Prioritizing incoming source changes |
+| `patience` | Use smarter diff algorithm | Cleaner diffs with moved/refactored code |
+
+### `-X ours` (Default)
+
+**"When in doubt, keep what's already in the destination."**
+
+This is the safest default. If a file was modified in both the source and destination since they diverged, the destination's version wins.
+
+```bash
+./gitmux.sh -r source -t dest -X ours
+```
+
+**Example:** You extracted `utils.py` from a monorepo last month. Since then, both repos modified `utils.py`. With `ours`, gitmux keeps the destination's version of conflicting lines—your local changes are preserved.
+
+### `-X theirs`
+
+**"When in doubt, take what's coming from the source."**
+
+Use this when the source is authoritative and you want its changes to override local modifications.
+
+```bash
+./gitmux.sh -r source -t dest -X theirs
+```
+
+**Example:** The monorepo's `utils.py` has important upstream fixes. With `theirs`, gitmux takes the source's version of conflicting lines—upstream changes override your local edits.
+
+### `-X patience`
+
+**"Take more time to find a better diff."**
+
+The patience algorithm produces cleaner diffs when code has been moved around or refactored. It's particularly good at matching up function boundaries correctly.
+
+```bash
+./gitmux.sh -r source -t dest -X patience
+```
+
+**Example:** A file was reorganized—functions were reordered, blank lines added. The standard diff might match the wrong sections together. Patience diff is smarter about finding the "right" matches, resulting in fewer false conflicts.
+
+### Custom Options with `-o`
+
+For advanced use cases, pass any valid `git rebase` options directly:
+
+```bash
+# Combine strategies
+./gitmux.sh -r source -t dest -o "--strategy-option=theirs --strategy-option=patience"
+
+# Specify diff algorithm explicitly
+./gitmux.sh -r source -t dest -o "--strategy-option=diff-algorithm=histogram"
+```
+
+### Interactive Mode with `-i`
+
+When automatic resolution isn't enough, use interactive mode to resolve conflicts manually:
+
+```bash
+./gitmux.sh -r source -t dest -i
+```
+
+gitmux will pause and provide a `cd` command to enter the workspace. Resolve conflicts, complete the rebase, then push to the `destination` remote.
 
 ## FAQ
 
