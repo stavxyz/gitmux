@@ -1,0 +1,32 @@
+FROM ubuntu:24.04
+
+# Install dependencies
+RUN apt-get update && apt-get install -y \
+    git \
+    curl \
+    jq \
+    bats \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install GitHub CLI
+RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list \
+    && apt-get update && apt-get install -y gh \
+    && rm -rf /var/lib/apt/lists/*
+
+# Configure git
+RUN git config --global user.email "test@example.com" \
+    && git config --global user.name "Test User" \
+    && git config --global init.defaultBranch main
+
+WORKDIR /workspace
+
+# Copy test files
+COPY gitmux.sh test_gitmux.sh ./
+COPY tests/ ./tests/
+
+# Make scripts executable
+RUN chmod +x gitmux.sh test_gitmux.sh
+
+# Default command runs bats tests (no GH_TOKEN needed)
+CMD ["bats", "tests/test_gitmux_unit.bats"]
