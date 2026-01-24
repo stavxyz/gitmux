@@ -207,7 +207,7 @@ KEEP_TMP_WORKSPACE="${KEEP_TMP_WORKSPACE:-false}"
 DRY_RUN="${DRY_RUN:-false}"
 
 # Don't default these rebase options *yet*
-MERGE_STRATEGY_OPTION_FOR_REBASE="${MERGE_STRATEGY_OPTION_FOR_REBASE:-ours}"
+MERGE_STRATEGY_OPTION_FOR_REBASE="${MERGE_STRATEGY_OPTION_FOR_REBASE:-theirs}"
 REBASE_OPTIONS="${REBASE_OPTIONS:-}"
 GH_HOST="${GH_HOST:-github.com}"
 GITHUB_TEAMS=()
@@ -267,7 +267,7 @@ function show_help()
   -b <destination_branch>      Destination (a.k.a. base) branch in destination repository against which, changes will be rebased. Further, if [-s] is supplied, the resulting content will be submitted with this destination branch as the target (base) for the pull request. (Default: trunk)
   -l <rev-list options>        Options passed to git rev-list during \`git filter-branch\`. Can be used to specify individual files to be brought into the [new] repository. e.g. -l '--all -- file1.txt file2.txt' Note: file paths with spaces are not supported. For more info see git's documentation for git filter-branch under the parameters for <rev-list options>…
   -o <rebase_options>          Options to supply to \`git rebase\`. If set and includes --interactive or -i, this script will drop you into the workspace to complete the workflow manually (Note: cannot use with -X)
-  -X <option>                  Rebase strategy option, e.g. ours/patience. Defaults to 'ours' (Note: cannot use with -o)
+  -X <option>                  Rebase strategy option, e.g. theirs/ours/patience. Defaults to 'theirs' (Note: cannot use with -o)
   -i                           Perform an interactive rebase. If you use this option you will need to push your resulting branch to the remote named 'destination' and submit a pull request manually.
   -s                           Submit a pull request to your destination. Requires \`gh\`. Only valid for non-local destination repositories. (default: off)
   -c                           Create the destination repository if it does not exist. Requires \`gh\`. (default: off)

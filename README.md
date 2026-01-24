@@ -145,7 +145,7 @@ Destination:
   -c                  Create destination repo if it doesn't exist
 
 Rebase:
-  -X <strategy>       Rebase strategy: ours, theirs, patience (default: ours)
+  -X <strategy>       Rebase strategy: theirs, ours, patience (default: theirs)
   -o <options>        Custom git rebase options
   -i                  Interactive rebase mode
 
@@ -219,38 +219,45 @@ All author/committer options can also be set via environment variables:
 
 When gitmux rebases the source history onto the destination, conflicts can occur if the same lines were changed in both places. The `-X` option controls how these conflicts are resolved automatically.
 
+**Why `theirs` is the default:** When you run gitmux, your intent is to get content from the source. If conflicts occur and source changes are dropped (as with `ours`), you might never notice—the PR shows what was added, not what *should have been* added. But if destination changes are dropped (as with `theirs`), those deletions appear in the PR diff, giving you a chance to catch them before merging.
+
 ### Understanding the Strategies
 
 | Strategy | When a conflict occurs... | Best for |
 |----------|--------------------------|----------|
-| `ours` (default) | Keep the destination's version | Protecting existing destination changes |
-| `theirs` | Keep the source's version | Prioritizing incoming source changes |
+| `theirs` (default) | Keep the source's version | Most syncs — you want the source content |
+| `ours` | Keep the destination's version | Protecting local destination changes |
 | `patience` | Use smarter diff algorithm | Cleaner diffs with moved/refactored code |
 | `diff-algorithm=<algo>` | Change how diffs are computed | Fine-tuning diff quality (histogram, minimal, myers) |
 
-### `-X ours` (Default)
+### `-X theirs` (Default)
+
+**"When in doubt, take what's coming from the source."**
+
+This is the default because it aligns with user intent: when you run gitmux, you're trying to get content from the source repository.
+
+```bash
+./gitmux.sh -r source -t dest           # uses theirs by default
+./gitmux.sh -r source -t dest -X theirs # explicit
+```
+
+**Why this default?** If conflicts are resolved by keeping the source's version, any overwritten destination content will be **visible in the PR diff**. You'll see lines being removed from destination files, giving you a chance to review before merging. This is better than the alternative (`ours`), where dropped source changes are invisible—you'd never know they were supposed to be there.
+
+**Example:** The monorepo's `utils.py` has important upstream fixes. With `theirs`, gitmux takes the source's version of conflicting lines—upstream changes come through as expected.
+
+### `-X ours`
 
 **"When in doubt, keep what's already in the destination."**
 
-This is the safest default. If a file was modified in both the source and destination since they diverged, the destination's version wins.
+Use this when your destination has intentional local changes you want to protect, and you're selectively pulling from source.
 
 ```bash
 ./gitmux.sh -r source -t dest -X ours
 ```
 
-**Example:** You extracted `utils.py` from a monorepo last month. Since then, both repos modified `utils.py`. With `ours`, gitmux keeps the destination's version of conflicting lines—your local changes are preserved.
+**Caution:** With `ours`, conflicting source changes are silently dropped. The PR will show what was added, but won't show what *should have been* added but wasn't. Use this only when you're confident destination changes should take precedence.
 
-### `-X theirs`
-
-**"When in doubt, take what's coming from the source."**
-
-Use this when the source is authoritative and you want its changes to override local modifications.
-
-```bash
-./gitmux.sh -r source -t dest -X theirs
-```
-
-**Example:** The monorepo's `utils.py` has important upstream fixes. With `theirs`, gitmux takes the source's version of conflicting lines—upstream changes override your local edits.
+**Example:** You extracted `utils.py` and made local improvements. With `ours`, gitmux keeps the destination's version of conflicting lines—your local changes are preserved, but upstream conflict changes are lost.
 
 ### `-X patience`
 
@@ -329,7 +336,7 @@ A: Yes! Use `-i` for interactive rebase. gitmux will give you a `cd` command to 
 
 **Q: What if there are merge conflicts?**
 
-A: gitmux uses the rebase strategy specified by `-X` (default: `ours`). For complex conflicts, use `-i` for manual resolution.
+A: gitmux uses the rebase strategy specified by `-X` (default: `theirs`). For complex conflicts, use `-i` for manual resolution.
 
 **Q: Can I run gitmux multiple times?**
 
