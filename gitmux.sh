@@ -622,7 +622,7 @@ if [[ -n "$destination_path" ]] && ! [[ "${destination_path}" == '/' ]]; then
     log "Moving repository files into tempdir."
     # First create a random file in case the directory is empty
     # For some odd reason. (Delete afterward)
-    _rname="$(echo $RANDOM$RANDOM | tr '0-9' '[:lower:]').txt"
+    _rname="$(echo $RANDOM$RANDOM | tr '0-9' 'a-j').txt"
     echo "Created by gitmux. Serves as a .gitkeep in case the directory is empty. Delete me." > "${_rname}"
     git add --force --intent-to-add "${_rname}"
     # Move everything except __tmp__ into __tmp__
