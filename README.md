@@ -226,6 +226,7 @@ When gitmux rebases the source history onto the destination, conflicts can occur
 | `ours` (default) | Keep the destination's version | Protecting existing destination changes |
 | `theirs` | Keep the source's version | Prioritizing incoming source changes |
 | `patience` | Use smarter diff algorithm | Cleaner diffs with moved/refactored code |
+| `diff-algorithm=<algo>` | Change how diffs are computed | Fine-tuning diff quality (histogram, minimal, myers) |
 
 ### `-X ours` (Default)
 
@@ -262,6 +263,33 @@ The patience algorithm produces cleaner diffs when code has been moved around or
 ```
 
 **Example:** A file was reorganized—functions were reordered, blank lines added. The standard diff might match the wrong sections together. Patience diff is smarter about finding the "right" matches, resulting in fewer false conflicts.
+
+### `-X diff-algorithm=<algo>`
+
+**"Change how git computes the diff itself."**
+
+The diff algorithm determines how git figures out what changed between two versions. Different algorithms have different trade-offs:
+
+| Algorithm | Description | Best for |
+|-----------|-------------|----------|
+| `myers` | Default. Fast, minimal edit distance | Most cases |
+| `minimal` | Like myers, but tries harder to minimize diff size | When you want the smallest possible diff |
+| `patience` | Matches unique lines first, then fills in | Code with clear structure (functions, classes) |
+| `histogram` | Enhanced patience with better performance | Large files, code with repetitive patterns |
+
+```bash
+# Use histogram algorithm (often best for code)
+./gitmux.sh -r source -t dest -X diff-algorithm=histogram
+
+# Use minimal algorithm
+./gitmux.sh -r source -t dest -X diff-algorithm=minimal
+```
+
+**When to use what:**
+- **`histogram`** is generally the best choice for code—it's what GitHub uses internally
+- **`patience`** (shorthand `-X patience`) is good when histogram produces weird results
+- **`minimal`** when you want the mathematically smallest diff
+- **`myers`** (default) when speed matters more than diff quality
 
 ### Custom Options with `-o`
 
