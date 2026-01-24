@@ -191,13 +191,13 @@ echo
 #### Test 1:
 ####    - defaults
 ####    - use existing github repository
-####    - rebase strategy 'ours'
+####    - rebase strategy 'theirs' (default)
 ##########################################
 
 test_defaults_with_existing_upstream_destination() {
   ./gitmux.sh -v -r "${SOURCE_REPOSITORY_PATH}" -t "${DESTINATION_REPOSITORY_PATH}"
   _pushd "${DESTINATION_REPOSITORY_PATH}"
-  git checkout "update-from-something-new-${_sha}-rebase-strategy-ours"
+  git checkout "update-from-something-new-${_sha}-rebase-strategy-theirs"
   local output=''
   if output=$(cat hello.txt) && [ "${output}" == "Hello World" ];then
     echo "${output}" && echo "✅ Success"
@@ -241,7 +241,7 @@ echo
 #### Test 3:
 ####    - defaults with -c (create repo for me)
 ####    - gitmux should create repository for me
-####    - rebase strategy 'ours'
+####    - rebase strategy 'theirs' (default)
 ##########################################
 
 test_defaults_destination_dne_yet() {
@@ -253,7 +253,7 @@ test_defaults_destination_dne_yet() {
   git clone "${NEW_REPO_NO_UPSTREAM_YET}"
   # This should create a directory called $NEW_REPO_PROJECT_NAME
   _pushd "${NEW_REPO_PROJECT_NAME}"
-  git checkout "update-from-something-new-${_sha}-rebase-strategy-ours"
+  git checkout "update-from-something-new-${_sha}-rebase-strategy-theirs"
   local output=''
   if output=$(cat hello.txt) && [ "${output}" == "Hello World" ];then
     echo "${output}" && echo "✅ Success"
@@ -273,7 +273,7 @@ echo
 #### Test 4:
 ####    - defaults with -c (create repo for me)
 ####    - gitmux should create repository for me
-####    - rebase strategy 'ours'
+####    - rebase strategy 'theirs' (default)
 ####    - add github team infraconfig/infracore
 ##########################################
 
@@ -286,8 +286,8 @@ test_defaults_add_orgteam() {
   git clone "${NEW_REPO_NO_UPSTREAM_YET}"
   # This should create a directory called $NEW_REPO_PROJECT_NAME
   _pushd "${NEW_REPO_PROJECT_NAME}"
-  # update-from-something-new-23eae47-rebase-strategy-ours
-  git checkout "update-from-something-new-${_sha}-rebase-strategy-ours"
+  # update-from-something-new-23eae47-rebase-strategy-theirs
+  git checkout "update-from-something-new-${_sha}-rebase-strategy-theirs"
   local output=''
   if output=$(cat hello.txt) && [ "${output}" == "Hello World" ];then
     echo "${output}" && echo "✅ Success"
@@ -307,7 +307,7 @@ echo
 #### Test 5:
 ####    - defaults with -c (create repo for me)
 ####    - gitmux should create repository for me
-####    - rebase strategy 'ours'
+####    - rebase strategy 'theirs' (default)
 ####    - selective file migration
 ##########################################
 
@@ -320,7 +320,7 @@ test_defaults_destination_dne_yet_only_wat() {
   git clone "${NEW_REPO_NO_UPSTREAM_YET}"
   # This should create a directory called $NEW_REPO_PROJECT_NAME
   _pushd "${NEW_REPO_PROJECT_NAME}"
-  git checkout "update-from-something-new-${_sha}-rebase-strategy-ours"
+  git checkout "update-from-something-new-${_sha}-rebase-strategy-theirs"
   if [ -f hello.txt ]; then
     errcho "File hello.txt should not be here"
     errcleanup
@@ -347,7 +347,7 @@ test_defaults_destination_dne_yet_only_toto() {
   git clone "${NEW_REPO_NO_UPSTREAM_YET}"
   # This should create a directory called $NEW_REPO_PROJECT_NAME
   _pushd "${NEW_REPO_PROJECT_NAME}"
-  git checkout "update-from-something-new-${_sha}-rebase-strategy-ours"
+  git checkout "update-from-something-new-${_sha}-rebase-strategy-theirs"
   if [ -f hello.txt ]; then
     errcho "File hello.txt should not be here"
     errcleanup
