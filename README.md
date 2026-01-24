@@ -219,7 +219,7 @@ All author/committer options can also be set via environment variables:
 
 When gitmux rebases the source history onto the destination, conflicts can occur if the same lines were changed in both places. The `-X` option controls how these conflicts are resolved automatically.
 
-**Why `theirs` is the default:** When you run gitmux, your intent is to get content from the source. If conflicts occur and source changes are dropped (as with `ours`), you might never notice—the PR shows what was added, not what *should have been* added. But if destination changes are dropped (as with `theirs`), those deletions appear in the PR diff, giving you a chance to catch them before merging.
+**Why `theirs` is the default:** When you run gitmux, your intent is to get content from the source. If conflicts occur and source changes are dropped (as with `ours`), you might never notice—the PR shows what was added, not what *should have been* added. But if destination changes are dropped (as with `theirs`), those deletions appear in the PR diff, giving you a chance to catch them before merging. Override with `-X ours` if your destination has changes you want to protect.
 
 ### Understanding the Strategies
 
