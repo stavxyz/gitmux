@@ -894,6 +894,8 @@ if ! _repo_existence="$(git fetch destination 2>&1)"; then
     # TODO: Make --private possible
     gh repo create "${destination_owner}/${destination_project}" --public --license=unlicense --gitignore 'VVVV' --clone --description "${NEW_REPOSITORY_DESCRIPTION}"
     _pushd "${destination_project}"
+    # Configure git to use gh CLI for authentication (needed for git push)
+    gh auth setup-git
     git remote --verbose show
     # Rename default branch to trunk (gitmux convention) if needed
     _current_branch=$(git branch --show-current)
