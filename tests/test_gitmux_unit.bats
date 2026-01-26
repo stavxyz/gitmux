@@ -628,3 +628,244 @@ Co-authored-by: Claude <noreply@anthropic.com>"
 
     teardown_local_repos
 }
+
+# =============================================================================
+# Multi-Path Migration Tests (-m flag)
+# =============================================================================
+
+# Helper to extract functions for multi-path testing
+setup_multipath_helpers() {
+    export GITMUX_SCRIPT="${BATS_TEST_DIRNAME}/../gitmux.sh"
+    export MULTIPATH_HELPER="${BATS_TEST_TMPDIR}/multipath_helper.sh"
+
+    # Extract relevant functions from gitmux.sh
+    cat > "${MULTIPATH_HELPER}" << 'HELPER_HEADER'
+#!/usr/bin/env bash
+errcho() { printf "%s\n" "$@" 1>&2; }
+HELPER_HEADER
+
+    # Extract functions
+    {
+        sed -n '/^function stripslashes () {/,/^}/p' "${GITMUX_SCRIPT}"
+        sed -n '/^function normalize_path () {/,/^}/p' "${GITMUX_SCRIPT}"
+        sed -n '/^function parse_path_mapping () {/,/^}/p' "${GITMUX_SCRIPT}"
+        sed -n '/^function validate_no_dest_overlap () {/,/^}/p' "${GITMUX_SCRIPT}"
+    } >> "${MULTIPATH_HELPER}"
+
+    source "${MULTIPATH_HELPER}"
+}
+
+@test "normalize_path: dot becomes empty string" {
+    setup_multipath_helpers
+    result=$(normalize_path ".")
+    [[ "$result" == "" ]]
+}
+
+@test "normalize_path: empty string stays empty" {
+    setup_multipath_helpers
+    result=$(normalize_path "")
+    [[ "$result" == "" ]]
+}
+
+@test "normalize_path: strips leading slashes" {
+    setup_multipath_helpers
+    result=$(normalize_path "/foo/bar")
+    [[ "$result" == "foo/bar" ]]
+}
+
+@test "normalize_path: strips trailing slashes" {
+    setup_multipath_helpers
+    result=$(normalize_path "foo/bar/")
+    [[ "$result" == "foo/bar" ]]
+}
+
+@test "normalize_path: strips both leading and trailing slashes" {
+    setup_multipath_helpers
+    result=$(normalize_path "/foo/bar/")
+    [[ "$result" == "foo/bar" ]]
+}
+
+@test "parse_path_mapping: simple source:dest parsing" {
+    setup_multipath_helpers
+    parse_path_mapping "src/foo:dest/bar"
+    [[ "$PARSED_SOURCE" == "src/foo" ]]
+    [[ "$PARSED_DEST" == "dest/bar" ]]
+}
+
+@test "parse_path_mapping: empty source (root to subdir)" {
+    setup_multipath_helpers
+    parse_path_mapping ":dest/bar"
+    [[ "$PARSED_SOURCE" == "" ]]
+    [[ "$PARSED_DEST" == "dest/bar" ]]
+}
+
+@test "parse_path_mapping: empty dest (subdir to root)" {
+    setup_multipath_helpers
+    parse_path_mapping "src/foo:"
+    [[ "$PARSED_SOURCE" == "src/foo" ]]
+    [[ "$PARSED_DEST" == "" ]]
+}
+
+@test "parse_path_mapping: both empty (root to root)" {
+    setup_multipath_helpers
+    parse_path_mapping ":"
+    [[ "$PARSED_SOURCE" == "" ]]
+    [[ "$PARSED_DEST" == "" ]]
+}
+
+@test "parse_path_mapping: escaped colons in source" {
+    setup_multipath_helpers
+    parse_path_mapping 'path\:with\:colons:dest'
+    [[ "$PARSED_SOURCE" == "path:with:colons" ]]
+    [[ "$PARSED_DEST" == "dest" ]]
+}
+
+@test "parse_path_mapping: escaped colons in dest" {
+    setup_multipath_helpers
+    parse_path_mapping 'src:dest\:with\:colons'
+    [[ "$PARSED_SOURCE" == "src" ]]
+    [[ "$PARSED_DEST" == "dest:with:colons" ]]
+}
+
+@test "parse_path_mapping: fails with no colon" {
+    setup_multipath_helpers
+    run parse_path_mapping "no_colon_here"
+    [[ "$status" -ne 0 ]]
+}
+
+@test "parse_path_mapping: fails with multiple unescaped colons" {
+    setup_multipath_helpers
+    run parse_path_mapping "src:mid:dest"
+    [[ "$status" -ne 0 ]]
+}
+
+@test "validate_no_dest_overlap: no overlap for different paths" {
+    setup_multipath_helpers
+    run validate_no_dest_overlap "lib/foo" "lib/bar"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "validate_no_dest_overlap: detects duplicate paths" {
+    setup_multipath_helpers
+    run validate_no_dest_overlap "lib" "lib"
+    [[ "$status" -ne 0 ]]
+}
+
+@test "validate_no_dest_overlap: detects parent/child overlap" {
+    setup_multipath_helpers
+    run validate_no_dest_overlap "lib" "lib/utils"
+    [[ "$status" -ne 0 ]]
+}
+
+@test "validate_no_dest_overlap: detects child/parent overlap" {
+    setup_multipath_helpers
+    run validate_no_dest_overlap "lib/utils" "lib"
+    [[ "$status" -ne 0 ]]
+}
+
+@test "validate_no_dest_overlap: root path with other paths fails" {
+    setup_multipath_helpers
+    run validate_no_dest_overlap "" "lib"
+    [[ "$status" -ne 0 ]]
+}
+
+# Argument validation tests for -m flag
+@test "validation: -m and -d together fails" {
+    run bash -c "cd '$BATS_TEST_DIRNAME/..' && ./gitmux.sh -m 'src:dest' -d subdir -r foo -t bar 2>&1"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" =~ "-m cannot be used with -d or -p" ]]
+}
+
+@test "validation: -m and -p together fails" {
+    run bash -c "cd '$BATS_TEST_DIRNAME/..' && ./gitmux.sh -m 'src:dest' -p destpath -r foo -t bar 2>&1"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" =~ "-m cannot be used with -d or -p" ]]
+}
+
+@test "validation: -m with invalid format fails" {
+    run bash -c "cd '$BATS_TEST_DIRNAME/..' && ./gitmux.sh -m 'no_colon' -r foo -t bar 2>&1"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" =~ "missing colon separator" ]]
+}
+
+@test "validation: -m with multiple unescaped colons fails" {
+    run bash -c "cd '$BATS_TEST_DIRNAME/..' && ./gitmux.sh -m 'a:b:c' -r foo -t bar 2>&1"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" =~ "multiple unescaped colons" ]]
+}
+
+@test "validation: multiple -m with overlapping destinations fails" {
+    run bash -c "cd '$BATS_TEST_DIRNAME/..' && ./gitmux.sh -m 'src1:lib' -m 'src2:lib/utils' -r foo -t bar 2>&1"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" =~ "conflict" ]]
+}
+
+@test "validation: valid -m flag is accepted" {
+    # This should fail later (no actual repo), but not on -m parsing
+    run bash -c "cd '$BATS_TEST_DIRNAME/..' && ./gitmux.sh -m 'src:dest' -r foo -t bar 2>&1"
+    [[ ! "$output" =~ "missing colon separator" ]]
+    [[ ! "$output" =~ "multiple unescaped colons" ]]
+    [[ ! "$output" =~ "-m cannot be used" ]]
+}
+
+@test "validation: multiple valid -m flags are accepted" {
+    # This should fail later (no actual repo), but not on -m parsing
+    run bash -c "cd '$BATS_TEST_DIRNAME/..' && ./gitmux.sh -m 'src1:dest1' -m 'src2:dest2' -r foo -t bar 2>&1"
+    [[ ! "$output" =~ "missing colon separator" ]]
+    [[ ! "$output" =~ "conflict" ]]
+}
+
+# =============================================================================
+# E2E Test for Multi-Path Migration with Local Repos
+# =============================================================================
+
+@test "e2e: multi-path migration with -m flag" {
+    setup_local_repos
+
+    # Create source with src/ and tests/ directories
+    cd "$E2E_TEST_DIR/source" || return 1
+    mkdir -p src tests
+    echo "source code" > src/main.js
+    echo "test code" > tests/main.test.js
+    git add .
+    git commit -m "Add src and tests directories"
+    git push origin main
+
+    # Run gitmux with multiple -m flags
+    cd "$BATS_TEST_DIRNAME/.." || return 1
+    run bash -c "./gitmux.sh \
+        -r '$E2E_TEST_DIR/source' \
+        -t '$E2E_TEST_DIR/dest' \
+        -b main \
+        -m 'src:packages/app/src' \
+        -m 'tests:packages/app/tests' \
+        -k <<< 'y' 2>&1"
+
+    # Debug: show gitmux output if something went wrong
+    echo "gitmux output: $output" >&2
+
+    # Verify gitmux didn't fail catastrophically
+    [[ ! "$output" =~ "errxit" ]]
+
+    # Check the result in dest
+    cd "$E2E_TEST_DIR/dest" || return 1
+
+    local branch_name
+    branch_name=$(git branch -a | grep "update-from-main" | head -1 | tr -d ' *')
+
+    [[ -n "$branch_name" ]] || { echo "No update-from-main branch found"; return 1; }
+
+    git checkout "$branch_name"
+
+    # Verify src was migrated to packages/app/src/
+    [[ -f "packages/app/src/main.js" ]] || { echo "src/main.js not found at destination"; return 1; }
+    E2E_SRC_CONTENT=$(cat "packages/app/src/main.js")
+    [[ "$E2E_SRC_CONTENT" == "source code" ]]
+
+    # Verify tests was migrated to packages/app/tests/
+    [[ -f "packages/app/tests/main.test.js" ]] || { echo "tests/main.test.js not found at destination"; return 1; }
+    E2E_TEST_CONTENT=$(cat "packages/app/tests/main.test.js")
+    [[ "$E2E_TEST_CONTENT" == "test code" ]]
+
+    teardown_local_repos
+}
