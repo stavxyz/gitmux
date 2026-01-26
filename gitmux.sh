@@ -264,6 +264,10 @@ function normalize_path () {
 function parse_path_mapping () {
   local mapping="$1"
 
+  # Initialize globals to prevent stale values from previous calls
+  PARSED_SOURCE=""
+  PARSED_DEST=""
+
   # Replace escaped colons with a placeholder (ASCII unit separator)
   local placeholder=$'\x1f'
   local escaped_mapping="${mapping//\\:/$placeholder}"
@@ -789,13 +793,27 @@ process_single_mapping() {
 
     if [ -n "${_source_path}" ]; then
       log "Moving files from ${_source_path} into tempdir."
-      git mv "${_source_path}"/* __tmp__
+      # Validate source path exists and has content
+      if [[ ! -d "${_source_path}" ]]; then
+        errcho "Source path '${_source_path}' does not exist"
+        return 1
+      fi
+      if ! git mv "${_source_path}"/* __tmp__ 2>&1; then
+        errcho "Failed to move files from '${_source_path}' to temp directory"
+        errcho "Source path may be empty or contain unmovable files"
+        return 1
+      fi
       log "Creating destination path ${_source_path}/${_dest_path}."
       mkdir -p "${_source_path}/${_dest_path}"
       log "Moving content from tempdir into ${_source_path}/${_dest_path}."
-      git mv __tmp__/* "${_source_path}/${_dest_path}/"
+      if ! git mv __tmp__/* "${_source_path}/${_dest_path}/" 2>&1; then
+        errcho "Failed to move files from temp directory to '${_source_path}/${_dest_path}/'"
+        return 1
+      fi
       log "Cleaning up tempdir."
-      rm -rf __tmp__
+      if [[ -d __tmp__ ]] && ! rm -rf __tmp__; then
+        errcho "Warning: Failed to clean up temp directory __tmp__"
+      fi
       git add --update --refresh "${_source_path:-.}"
     else
       log "Moving repository files into tempdir."
@@ -807,23 +825,45 @@ process_single_mapping() {
       git add --force --intent-to-add "${_rname}"
       # Move everything except __tmp__ into __tmp__
       # Loop through files to avoid extglob issues in functions
+      # Enable nullglob to handle empty directories gracefully
+      local _moved_count=0
+      shopt -s nullglob
       for _item in *; do
         if [[ "$_item" != "__tmp__" ]]; then
-          git mv "$_item" __tmp__/
+          if ! git mv "$_item" __tmp__/ 2>&1; then
+            shopt -u nullglob
+            errcho "Failed to move '$_item' to temp directory"
+            return 1
+          fi
+          ((_moved_count++)) || true
         fi
       done
+      shopt -u nullglob
+      if [[ $_moved_count -eq 0 ]]; then
+        errcho "Warning: No files to move (directory appears empty)"
+      fi
       mkdir -p "${_dest_path}"
-      git mv __tmp__/* "${_dest_path}/"
+      if ! git mv __tmp__/* "${_dest_path}/" 2>&1; then
+        errcho "Failed to move files from temp directory to '${_dest_path}/'"
+        return 1
+      fi
       # Trying to ensure we get all the commit history...
       git add --update --refresh
       log "Cleaning up ${_rname}"
-      git rm -f "${_dest_path}/${_rname}"
+      if ! git rm -f "${_dest_path}/${_rname}" 2>&1; then
+        errcho "Warning: Failed to clean up temporary file '${_dest_path}/${_rname}'"
+      fi
       log "Cleaning up tempdir."
-      rm -rf __tmp__
+      if [[ -d __tmp__ ]] && ! rm -rf __tmp__; then
+        errcho "Warning: Failed to clean up temp directory __tmp__"
+      fi
     fi
   fi
 
-  git commit --allow-empty -m "Bring in changes from ${source_uri} ${GIT_BRANCH} [mapping $((_mapping_idx + 1))/${_mapping_total}]"
+  if ! git commit --allow-empty -m "Bring in changes from ${source_uri} ${GIT_BRANCH} [mapping $((_mapping_idx + 1))/${_mapping_total}]"; then
+    errcho "Failed to commit file reorganization for mapping $((_mapping_idx + 1))"
+    return 1
+  fi
 
   # Build subdirectory filter options
   local _subdirectory_filter_options=""
@@ -891,12 +931,23 @@ process_single_mapping() {
       git reset \\\$GIT_COMMIT -- ${rev_list_files}
      \" -- --all -- ${rev_list_files}"
     log "Running: ${_filter_branch_cmd}"
-    eval "${_filter_branch_cmd}"
+    # SAFETY: eval is safe here because all user-provided values (author/committer names/emails)
+    # are validated by _validate_safe_string() which rejects shell metacharacters.
+    if ! eval "${_filter_branch_cmd}"; then
+      errcho "git filter-branch failed for mapping $((_mapping_idx + 1))"
+      errcho "Command was: ${_filter_branch_cmd}"
+      return 1
+    fi
   else
     # shellcheck disable=SC2086
     _filter_branch_cmd="${_filter_branch_cmd} ${_subdirectory_filter_options}"
     log "Running: ${_filter_branch_cmd}"
-    eval "${_filter_branch_cmd}"
+    # SAFETY: eval is safe here - see comment above regarding input validation
+    if ! eval "${_filter_branch_cmd}"; then
+      errcho "git filter-branch failed for mapping $((_mapping_idx + 1))"
+      errcho "Command was: ${_filter_branch_cmd}"
+      return 1
+    fi
   fi
 
   log "git filter-branch completed for mapping $((_mapping_idx + 1))."
@@ -993,17 +1044,23 @@ log "Processing ${MAPPING_COUNT} path mapping(s)..."
 
 for ((mapping_idx = 0; mapping_idx < MAPPING_COUNT; mapping_idx++)); do
   # Parse the current mapping
-  parse_path_mapping "${PATH_MAPPINGS[mapping_idx]}"
+  if ! parse_path_mapping "${PATH_MAPPINGS[mapping_idx]}"; then
+    errxit "Failed to parse path mapping at index ${mapping_idx}: ${PATH_MAPPINGS[mapping_idx]}"
+  fi
   current_source="$PARSED_SOURCE"
   current_dest="$PARSED_DEST"
 
   if [[ $mapping_idx -eq 0 ]]; then
     # First mapping: process directly on current branch
     log "Processing first mapping on main branch..."
-    process_single_mapping "$current_source" "$current_dest" "$mapping_idx" "$MAPPING_COUNT"
+    if ! process_single_mapping "$current_source" "$current_dest" "$mapping_idx" "$MAPPING_COUNT"; then
+      errxit "Failed to process mapping $(( mapping_idx + 1 )): '${current_source:-<root>}' -> '${current_dest:-<root>}'"
+    fi
 
     # Create integration branch from the result
-    git checkout -b "${INTEGRATION_BRANCH}"
+    if ! git checkout -b "${INTEGRATION_BRANCH}"; then
+      errxit "Failed to create integration branch '${INTEGRATION_BRANCH}'"
+    fi
     log "Created integration branch: ${INTEGRATION_BRANCH}"
   else
     # Subsequent mappings: reset to original, process on temp branch, merge
@@ -1013,31 +1070,62 @@ for ((mapping_idx = 0; mapping_idx < MAPPING_COUNT; mapping_idx++)); do
     TEMP_BRANCH="__gitmux_mapping_${mapping_idx}__"
 
     # Reset to original state
-    git checkout --force "${ORIGINAL_HEAD}"
-    git checkout -b "${TEMP_BRANCH}"
+    if ! git checkout --force "${ORIGINAL_HEAD}"; then
+      errxit "Failed to checkout original HEAD '${ORIGINAL_HEAD}'"
+    fi
+    if ! git checkout -b "${TEMP_BRANCH}"; then
+      errxit "Failed to create temporary branch '${TEMP_BRANCH}'"
+    fi
 
     # Remove filter-branch backup refs to allow re-running filter-branch
-    git for-each-ref --format='%(refname)' refs/original/ | while read -r ref; do
-      git update-ref -d "$ref"
-    done
+    # Use process substitution to avoid subshell issues with pipelines
+    if refs_to_delete=$(git for-each-ref --format='%(refname)' refs/original/ 2>&1); then
+      if [[ -n "$refs_to_delete" ]]; then
+        while IFS= read -r ref; do
+          if [[ -n "$ref" ]] && ! git update-ref -d "$ref" 2>&1; then
+            errcho "Warning: Failed to delete backup ref: $ref"
+          fi
+        done <<< "$refs_to_delete"
+      fi
+    fi
 
     # Process this mapping
-    process_single_mapping "$current_source" "$current_dest" "$mapping_idx" "$MAPPING_COUNT"
+    if ! process_single_mapping "$current_source" "$current_dest" "$mapping_idx" "$MAPPING_COUNT"; then
+      errxit "Failed to process mapping $(( mapping_idx + 1 )): '${current_source:-<root>}' -> '${current_dest:-<root>}'"
+    fi
 
     # Merge into integration branch
-    git checkout "${INTEGRATION_BRANCH}"
+    if ! git checkout "${INTEGRATION_BRANCH}"; then
+      errxit "Failed to checkout integration branch '${INTEGRATION_BRANCH}'"
+    fi
     log "Merging mapping $(( mapping_idx + 1 )) into integration branch..."
 
     # Use --allow-unrelated-histories since each filter-branch creates independent history
     if ! git merge --allow-unrelated-histories -m "Merge mapping $(( mapping_idx + 1 )): ${current_source:-<root>} -> ${current_dest:-<root>}" "${TEMP_BRANCH}"; then
-      # If merge conflicts, try to auto-resolve by accepting both
-      git checkout --theirs .
-      git add -A
-      git commit -m "Merge mapping $(( mapping_idx + 1 )): ${current_source:-<root>} -> ${current_dest:-<root>}"
+      # Merge conflict: auto-resolve by preferring incoming changes (theirs)
+      # This is appropriate because each mapping targets different destination paths,
+      # so conflicts indicate the temp branch has the desired new content.
+      errcho "Merge conflict detected for mapping $(( mapping_idx + 1 )). Resolving with --theirs strategy..."
+      if ! git checkout --theirs . 2>&1; then
+        errcho "Failed to checkout --theirs. Complex conflict requires manual resolution."
+        errcho "Workspace: ${_WORKSPACE}"
+        errxit "Merge resolution failed"
+      fi
+      if ! git add --update . 2>&1; then
+        errcho "Failed to stage resolved files."
+        errxit "Merge resolution failed"
+      fi
+      if ! git commit -m "Merge mapping $(( mapping_idx + 1 )): ${current_source:-<root>} -> ${current_dest:-<root>}" 2>&1; then
+        errcho "Failed to commit merge resolution."
+        errxit "Merge resolution failed"
+      fi
+      errcho "Merge conflict resolved using --theirs strategy."
     fi
 
     # Clean up temp branch
-    git branch -D "${TEMP_BRANCH}"
+    if ! git branch -D "${TEMP_BRANCH}" 2>&1; then
+      errcho "Warning: Failed to delete temporary branch '${TEMP_BRANCH}'"
+    fi
     log "Merged and cleaned up temporary branch."
   fi
 done
@@ -1053,7 +1141,11 @@ if [[ -n "${_append_to_pr_branch_name}" ]]; then
 fi
 
 # Rename integration branch to the PR branch name
-git branch -m "${INTEGRATION_BRANCH}" "${DESTINATION_PR_BRANCH_NAME}"
+if ! git branch -m "${INTEGRATION_BRANCH}" "${DESTINATION_PR_BRANCH_NAME}"; then
+  errcho "Failed to rename integration branch to '${DESTINATION_PR_BRANCH_NAME}'"
+  errcho "A branch with this name may already exist from a previous run."
+  errxit "Branch rename failed"
+fi
 log "Renamed integration branch to: ${DESTINATION_PR_BRANCH_NAME}"
 log "Status after processing mappings:"
 log "$(git status)"
