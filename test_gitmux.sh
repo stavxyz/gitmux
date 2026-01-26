@@ -374,6 +374,98 @@ test_defaults_destination_dne_yet_only_toto() {
 }
 
 
+##########################################
+#### Test 6:
+####    - Multi-path migration with -m flag
+####    - Two directories mapped to different destinations
+####    - Single PR branch created
+##########################################
+
+test_multipath_migration() {
+  # Create a new source repo specifically for multi-path testing
+  MULTIPATH_SOURCE_NAME="gitmux_test_multipath_source_$(rands)"
+  mkdir -p "${MULTIPATH_SOURCE_NAME}"
+  _pushd "${MULTIPATH_SOURCE_NAME}"
+  MULTIPATH_SOURCE_PATH="$(pwd)"
+  git init --initial-branch=trunk
+  createRepository "${GITHUB_OWNER}" "${MULTIPATH_SOURCE_NAME}"
+  repositoriesToDelete+=("${GITHUB_OWNER}/${MULTIPATH_SOURCE_NAME}")
+  git remote add multipath_source_remote "https://${GITHUB_OWNER}:${GH_TOKEN}@${GH_HOST}/${GITHUB_OWNER}/${MULTIPATH_SOURCE_NAME}.git"
+  git fetch multipath_source_remote
+  git checkout -b multipath-test --track multipath_source_remote/trunk
+
+  # Create src/ directory with some files
+  mkdir -p src
+  echo 'console.log("hello");' > 'src/index.js'
+  echo 'module.exports = {};' > 'src/utils.js'
+  git add src
+  git commit -m 'feat: add source files'
+
+  # Create tests/ directory with some files
+  mkdir -p tests
+  echo 'test("works", () => {});' > 'tests/index.test.js'
+  echo 'test("utils", () => {});' > 'tests/utils.test.js'
+  git add tests
+  git commit -m 'test: add test files'
+
+  git push multipath_source_remote multipath-test
+  _multipath_sha=$(git rev-parse --short HEAD)
+  _popd
+
+  # Create destination repo for multi-path test
+  MULTIPATH_DEST_NAME="gitmux_test_multipath_dest_$(rands)"
+  mkdir -p "${MULTIPATH_DEST_NAME}"
+  _pushd "${MULTIPATH_DEST_NAME}"
+  MULTIPATH_DEST_PATH="$(pwd)"
+  git init --initial-branch=trunk
+  createRepository "${GITHUB_OWNER}" "${MULTIPATH_DEST_NAME}"
+  repositoriesToDelete+=("${GITHUB_OWNER}/${MULTIPATH_DEST_NAME}")
+  git remote add multipath_dest_remote "https://${GITHUB_OWNER}:${GH_TOKEN}@${GH_HOST}/${GITHUB_OWNER}/${MULTIPATH_DEST_NAME}.git"
+  git fetch --update-head-ok multipath_dest_remote
+  git checkout trunk
+  git checkout -b multipath_dest_branch --track multipath_dest_remote/trunk
+  git commit --allow-empty -m 'initial destination repo commit: multipath test'
+  _popd
+
+  echo
+  echo "*~*~*~*~* MULTI-PATH MIGRATION TEST *~*~*~*~*"
+  echo
+
+  # Run gitmux with multiple -m flags
+  ./gitmux.sh -v \
+    -r "${MULTIPATH_SOURCE_PATH}" \
+    -t "${MULTIPATH_DEST_PATH}" \
+    -g multipath-test \
+    -m "src:packages/app/src" \
+    -m "tests:packages/app/tests"
+
+  # Verify both paths exist in destination
+  _pushd "${MULTIPATH_DEST_PATH}"
+  git checkout "update-from-multipath-test-${_multipath_sha}-rebase-strategy-theirs"
+
+  # Check src files are in packages/app/src/
+  local src_output=''
+  if src_output=$(cat packages/app/src/index.js) && [[ "${src_output}" == 'console.log("hello");' ]]; then
+    echo "✅ src/index.js migrated correctly to packages/app/src/"
+  else
+    errcho "❌ src/index.js not found or incorrect content"
+    errcleanup
+  fi
+
+  # Check tests files are in packages/app/tests/
+  local test_output=''
+  if test_output=$(cat packages/app/tests/index.test.js) && [[ "${test_output}" == 'test("works", () => {});' ]]; then
+    echo "✅ tests/index.test.js migrated correctly to packages/app/tests/"
+  else
+    errcho "❌ tests/index.test.js not found or incorrect content"
+    errcleanup
+  fi
+
+  echo "✅ Multi-path migration test passed!"
+  git checkout multipath_dest_branch
+  _popd
+}
+
 run_test_cases() {
   test_defaults_with_existing_upstream_destination
   test_rebase_strategy_theirs_with_existing_upstream_destination
@@ -381,6 +473,7 @@ run_test_cases() {
   #test_defaults_add_orgteam
   test_defaults_destination_dne_yet_only_wat
   test_defaults_destination_dne_yet_only_toto
+  test_multipath_migration
 }
 
 

@@ -211,6 +211,7 @@ MERGE_STRATEGY_OPTION_FOR_REBASE="${MERGE_STRATEGY_OPTION_FOR_REBASE:-theirs}"
 REBASE_OPTIONS="${REBASE_OPTIONS:-}"
 GH_HOST="${GH_HOST:-github.com}"
 GITHUB_TEAMS=()
+PATH_MAPPINGS=()
 
 # Author/committer override options (can be set via environment)
 GITMUX_AUTHOR_NAME="${GITMUX_AUTHOR_NAME:-}"
@@ -237,6 +238,109 @@ function stripslashes () {
   echo "$@" | sed 's:/*$::' | sed 's:^/*::'
 }
 
+# Normalize path to canonical form.
+# Converts ".", "/", or empty string to "" (meaning root).
+# Also strips leading/trailing slashes.
+# Arguments:
+#   $1 - Path string to normalize
+# Returns:
+#   Normalized path to stdout ("" means root)
+function normalize_path () {
+  local path="$1"
+  path="$(stripslashes "$path")"
+  if [[ "$path" == "." ]]; then
+    path=""
+  fi
+  echo "$path"
+}
+
+# Parse a path mapping in "source:dest" format.
+# Handles escaped colons (\:) in paths.
+# Arguments:
+#   $1 - Mapping string (e.g., "src/foo:dest/bar" or "path\:with\:colons:dest")
+# Returns:
+#   Sets global variables PARSED_SOURCE and PARSED_DEST
+#   Returns 0 on success, 1 on validation error
+function parse_path_mapping () {
+  local mapping="$1"
+
+  # Replace escaped colons with a placeholder (ASCII unit separator)
+  local placeholder=$'\x1f'
+  local escaped_mapping="${mapping//\\:/$placeholder}"
+
+  # Count unescaped colons
+  local colon_count
+  colon_count=$(echo "$escaped_mapping" | tr -cd ':' | wc -c | tr -d ' ')
+
+  if [[ "$colon_count" -eq 0 ]]; then
+    errcho "Invalid path mapping: '$mapping' - missing colon separator"
+    errcho "Format: source:dest (use \\: to escape literal colons)"
+    return 1
+  elif [[ "$colon_count" -gt 1 ]]; then
+    errcho "Invalid path mapping: '$mapping' - multiple unescaped colons"
+    errcho "Format: source:dest (use \\: to escape literal colons)"
+    return 1
+  fi
+
+  # Split on the single unescaped colon
+  local source_part="${escaped_mapping%%:*}"
+  local dest_part="${escaped_mapping#*:}"
+
+  # Restore escaped colons
+  source_part="${source_part//$placeholder/:}"
+  dest_part="${dest_part//$placeholder/:}"
+
+  # Normalize paths
+  PARSED_SOURCE="$(normalize_path "$source_part")"
+  PARSED_DEST="$(normalize_path "$dest_part")"
+
+  return 0
+}
+
+# Validate that destination paths don't overlap.
+# Two paths overlap if one is a prefix of the other.
+# Arguments:
+#   $@ - Array of destination paths to check
+# Returns:
+#   0 if no overlaps, 1 if overlaps detected
+function validate_no_dest_overlap () {
+  local -a paths=("$@")
+  local i j path1 path2
+
+  for ((i = 0; i < ${#paths[@]}; i++)); do
+    for ((j = i + 1; j < ${#paths[@]}; j++)); do
+      path1="${paths[i]}"
+      path2="${paths[j]}"
+
+      # Empty paths (root) overlap with everything
+      if [[ -z "$path1" ]] || [[ -z "$path2" ]]; then
+        if [[ ${#paths[@]} -gt 1 ]]; then
+          errcho "Destination path conflict: root (empty) path cannot be used with other paths"
+          return 1
+        fi
+      fi
+
+      # Check if paths are identical
+      if [[ "$path1" == "$path2" ]]; then
+        errcho "Destination path conflict: '$path1' specified multiple times"
+        return 1
+      fi
+
+      # Check if one is a prefix of the other (with path separator awareness)
+      if [[ "$path1/" == "${path2:0:$((${#path1}+1))}" ]]; then
+        errcho "Destination path conflict: '$path1' is a parent of '$path2'"
+        return 1
+      fi
+      if [[ "$path2/" == "${path1:0:$((${#path2}+1))}" ]]; then
+        errcho "Destination path conflict: '$path2' is a parent of '$path1'"
+        return 1
+      fi
+    done
+  done
+
+  return 0
+}
+
 # Print log message if verbose mode is enabled.
 # Arguments:
 #   $@ - Message(s) to print
@@ -253,17 +357,31 @@ function show_help()
   cat << EOF
   Usage: ${0##*/} -r SOURCE -t DESTINATION [OPTIONS]
 
-  Options: [-d SUBDIR] [-g GITREF] [-p DEST_PATH] [-b DEST_BRANCH]
+  Options: [-m SOURCE:DEST ...] [-d SUBDIR] [-g GITREF] [-p DEST_PATH] [-b DEST_BRANCH]
            [-X STRATEGY | -o REBASE_OPTS] [-z TEAM ...] [-i] [-s] [-c] [-k] [-v]
            [--author-name NAME --author-email EMAIL]
            [--committer-name NAME --committer-email EMAIL]
            [--coauthor-action claude|all|keep] [--dry-run]
-  “The life of a repo man is always intense.”
+  "The life of a repo man is always intense."
   -r <repository>              Path/url to the [remote] source repository. Required.
   -t <destination_repository>  Path/url to the [remote] destination repository. Required.
-  -d <sub/directory>           Directory within source repository to extract. This value is supplied to \`git filter-branch\` as --subdirectory-filter. (default: '/' which is effectively a fork of the entire repo.) Supply a value for -d to extract only a piece/subdirectory of your source repository.
+  -m <source:dest>             Path mapping in source:dest format. Can be specified multiple times for
+                               multi-path migrations. All mappings are processed into a single branch/PR.
+                               Use \\: to escape literal colons in paths. Empty or '.' means root.
+                               Examples:
+                                 -m src/lib:packages/lib         # subdir to subdir
+                                 -m src/app:                     # subdir to dest root
+                                 -m :packages/imported           # entire source to dest subdir
+                                 -m path\\:with\\:colons:dest    # escaped colons
+                               Note: -m cannot be used with -d or -p.
+  -d <sub/directory>           Directory within source repository to extract. This value is supplied to
+                               \`git filter-branch\` as --subdirectory-filter. (default: '/' which is
+                               effectively a fork of the entire repo.) Supply a value for -d to extract
+                               only a piece/subdirectory of your source repository.
+                               Note: For multi-path migrations, use -m instead.
   -g <gitref>                  Git ref for the [remote] source repository. (default: null, which just uses the HEAD of the default branch, probably 'trunk (or master)', after cloning.) Can be any value valid for \`git checkout <ref>\` e.g. a branch, commit, or tag.
   -p <destination_path>        Destination path for the filtered repository content ( default: '/' which places the repository content into the root of the destination repository. e.g. to place source repository's /app directory content into the /lib directory of your destination repository, supply -p lib )
+                               Note: For multi-path migrations, use -m instead.
   -b <destination_branch>      Destination (a.k.a. base) branch in destination repository against which, changes will be rebased. Further, if [-s] is supplied, the resulting content will be submitted with this destination branch as the target (base) for the pull request. (Default: trunk)
   -l <rev-list options>        Options passed to git rev-list during \`git filter-branch\`. Can be used to specify individual files to be brought into the [new] repository. e.g. -l '--all -- file1.txt file2.txt' Note: file paths with spaces are not supported. For more info see git's documentation for git filter-branch under the parameters for <rev-list options>…
   -o <rebase_options>          Options to supply to \`git rebase\`. If set and includes --interactive or -i, this script will drop you into the workspace to complete the workflow manually (Note: cannot use with -X)
@@ -297,12 +415,16 @@ EOF
 
 # Rebase option related flags are mutually exclusive
 _rebase_option_flags=''
+# Track usage of -m vs -d/-p for mutual exclusivity validation
+_used_m_flag=false
+_used_legacy_flags=false
 
-while getopts "h?vr:d:g:t:p:z:b:l:o:X:sickDN:E:n:e:C:" OPT; do
+while getopts "h?vr:d:g:t:p:z:b:l:o:X:m:sickDN:E:n:e:C:" OPT; do
   case "$OPT" in
     r)  source_repository=$OPTARG
       ;;
     d)  subdirectory_filter="$(stripslashes "${OPTARG}")" # Is relative to the git repo, should not have leading slashes.
+        _used_legacy_flags=true
       ;;
     l)  rev_list_files=$OPTARG
       ;;
@@ -311,6 +433,10 @@ while getopts "h?vr:d:g:t:p:z:b:l:o:X:sickDN:E:n:e:C:" OPT; do
     t)  destination_repository=$OPTARG
       ;;
     p)  destination_path="$(stripslashes "${OPTARG}")" # Is relative to the git repo, should not have leading slashes.
+        _used_legacy_flags=true
+      ;;
+    m)  PATH_MAPPINGS+=("$OPTARG")
+        _used_m_flag=true
       ;;
     b)  destination_branch=$OPTARG
       ;;
@@ -362,8 +488,45 @@ elif [[ -z "${GH_HOST:-}" ]]; then
   errxit "GH_HOST must be set."
 fi
 
-if [[ -z "$subdirectory_filter" ]]; then
-  errcho "No subdirectory filter specified! Entire source repository will be extracted."
+# Validate mutual exclusivity of -m and -d/-p
+if [[ "$_used_m_flag" == "true" ]] && [[ "$_used_legacy_flags" == "true" ]]; then
+  errxit "-m cannot be used with -d or -p. Use -m for all path mappings, or -d/-p for a single mapping."
+fi
+
+# Parse and validate -m mappings
+if [[ ${#PATH_MAPPINGS[@]} -gt 0 ]]; then
+  # Parse each mapping and collect destinations for overlap validation
+  declare -a _parsed_sources=()
+  declare -a _parsed_dests=()
+
+  for mapping in "${PATH_MAPPINGS[@]}"; do
+    if ! parse_path_mapping "$mapping"; then
+      errxit "Failed to parse path mapping: $mapping"
+    fi
+    _parsed_sources+=("$PARSED_SOURCE")
+    _parsed_dests+=("$PARSED_DEST")
+  done
+
+  # Validate no destination overlaps
+  if ! validate_no_dest_overlap "${_parsed_dests[@]}"; then
+    errxit "Path mapping validation failed"
+  fi
+
+  log "Parsed ${#PATH_MAPPINGS[@]} path mapping(s):"
+  for ((i = 0; i < ${#_parsed_sources[@]}; i++)); do
+    log "  [${i}] '${_parsed_sources[i]:-<root>}' -> '${_parsed_dests[i]:-<root>}'"
+  done
+
+  # Store parsed values for later use (we'll re-parse in the loop, but this validates upfront)
+  unset _parsed_sources _parsed_dests
+elif [[ -n "$subdirectory_filter" ]] || [[ -n "$destination_path" ]]; then
+  # Convert legacy -d/-p to PATH_MAPPINGS format for unified processing
+  PATH_MAPPINGS+=("${subdirectory_filter}:${destination_path}")
+  log "Using legacy -d/-p flags, converted to mapping: '${subdirectory_filter:-<root>}' -> '${destination_path:-<root>}'"
+else
+  # No mappings specified - entire repo to root (fork behavior)
+  PATH_MAPPINGS+=(":")
+  errcho "No subdirectory filter or path mappings specified! Entire source repository will be extracted."
 fi
 
 if [ ${#GITHUB_TEAMS[@]} -gt 0 ]; then
@@ -591,136 +754,155 @@ GIT_SHA=$(git rev-parse --short HEAD)
 log "GIT BRANCH ==> ${GIT_BRANCH}"
 log "GIT_SHA ==> ${GIT_SHA}"
 
-# In plain(er) english:
-#  - Let's take everything in the ci/ directory of the my-monorepo/
-#    repository and place it into the / directory of the 'monorepo-ci' repository.
-#  - While doing this, let's maintain the commit history.
-#
-# `git filter-branch` using --subdirectory-filter doesnt
-# keep the actual directory specified, *only its contents*.
-# So, lets create the directory structure we ultimately want
-# *in advance*.
+# Save original state for multi-mapping support
+# We need to reset to this state before processing each subsequent mapping
+ORIGINAL_HEAD=$(git rev-parse HEAD)
+log "Saved original HEAD: ${ORIGINAL_HEAD}"
 
-# If a destination path is specified, do some tricks.
-if [[ -n "$destination_path" ]] && ! [[ "${destination_path}" == '/' ]]; then
-  log "Destination path ( ${destination_path} ) was specified. Do a tango."
-  # ( Must use an intermediate temporary directory )
-  mkdir -p __tmp__
-  log "Temp dir created."
+# Process a single source:dest mapping.
+# Performs file reorganization and git filter-branch for one path mapping.
+# Arguments:
+#   $1 - Source path (subdirectory to extract, empty for root)
+#   $2 - Destination path (where to place content, empty for root)
+#   $3 - Mapping index (0-based, for logging)
+#   $4 - Total mapping count (for logging)
+# Globals used:
+#   source_uri, GIT_BRANCH, rev_list_files
+#   GITMUX_AUTHOR_NAME, GITMUX_AUTHOR_EMAIL, GITMUX_COMMITTER_NAME, GITMUX_COMMITTER_EMAIL
+#   GITMUX_COAUTHOR_ACTION
+# Returns:
+#   0 on success, non-zero on failure
+process_single_mapping() {
+  local _source_path="$1"
+  local _dest_path="$2"
+  local _mapping_idx="$3"
+  local _mapping_total="$4"
 
-  if [ -n "${subdirectory_filter}" ]; then
-    log "Moving files from ${subdirectory_filter} into tempdir."
-    git mv "${subdirectory_filter}"/* __tmp__
-    log "Creating destination path ${subdirectory_filter}/${destination_path}."
-    mkdir -p "${subdirectory_filter}/${destination_path}"
-    log "Moving content from tempdir into ${subdirectory_filter}/${destination_path}."
-    git mv __tmp__/* "${subdirectory_filter}/${destination_path}/"
-    log "Cleaning up tempdir."
-    rm -rf __tmp__
-    git add --update --refresh "${subdirectory_filter:-.}"
-  else
-    log "Moving repository files into tempdir."
-    # First create a random file in case the directory is empty
-    # For some odd reason. (Delete afterward)
-    _rname="$(echo $RANDOM$RANDOM | tr '0-9' 'a-j').txt"
-    echo "Created by gitmux. Serves as a .gitkeep in case the directory is empty. Delete me." > "${_rname}"
-    git add --force --intent-to-add "${_rname}"
-    # Move everything except __tmp__ into __tmp__
-    # shellcheck disable=SC2046
-    git mv $(echo !(__tmp__)) __tmp__
-    mkdir -p "${destination_path}"
-    git mv __tmp__/* "${destination_path}/"
-    # Trying to ensure we get all the commit history...
-    git add --update --refresh
-    log "Cleaning up ${_rname}"
-    git rm -f "${destination_path}/${_rname}"
-    log "Cleaning up tempdir."
-    rm -rf __tmp__
+  log "Processing mapping $((_mapping_idx + 1))/${_mapping_total}: '${_source_path:-<root>}' -> '${_dest_path:-<root>}'"
+
+  # File reorganization: if destination path is specified, restructure files
+  if [[ -n "$_dest_path" ]] && ! [[ "${_dest_path}" == '/' ]]; then
+    log "Destination path ( ${_dest_path} ) was specified. Do a tango."
+    # ( Must use an intermediate temporary directory )
+    mkdir -p __tmp__
+    log "Temp dir created."
+
+    if [ -n "${_source_path}" ]; then
+      log "Moving files from ${_source_path} into tempdir."
+      git mv "${_source_path}"/* __tmp__
+      log "Creating destination path ${_source_path}/${_dest_path}."
+      mkdir -p "${_source_path}/${_dest_path}"
+      log "Moving content from tempdir into ${_source_path}/${_dest_path}."
+      git mv __tmp__/* "${_source_path}/${_dest_path}/"
+      log "Cleaning up tempdir."
+      rm -rf __tmp__
+      git add --update --refresh "${_source_path:-.}"
+    else
+      log "Moving repository files into tempdir."
+      # First create a random file in case the directory is empty
+      # For some odd reason. (Delete afterward)
+      local _rname
+      _rname="$(echo $RANDOM$RANDOM | tr '0-9' 'a-j').txt"
+      echo "Created by gitmux. Serves as a .gitkeep in case the directory is empty. Delete me." > "${_rname}"
+      git add --force --intent-to-add "${_rname}"
+      # Move everything except __tmp__ into __tmp__
+      # Loop through files to avoid extglob issues in functions
+      for _item in *; do
+        if [[ "$_item" != "__tmp__" ]]; then
+          git mv "$_item" __tmp__/
+        fi
+      done
+      mkdir -p "${_dest_path}"
+      git mv __tmp__/* "${_dest_path}/"
+      # Trying to ensure we get all the commit history...
+      git add --update --refresh
+      log "Cleaning up ${_rname}"
+      git rm -f "${_dest_path}/${_rname}"
+      log "Cleaning up tempdir."
+      rm -rf __tmp__
+    fi
   fi
-fi
 
-git commit --allow-empty -m "Bring in changes from ${source_uri} ${GIT_BRANCH}"
+  git commit --allow-empty -m "Bring in changes from ${source_uri} ${GIT_BRANCH} [mapping $((_mapping_idx + 1))/${_mapping_total}]"
 
-# With "--subdirectory-filter=app"  ${destination_path} == lib 
-# we get the contents of the app/
-# directory, which is now a directory called "lib/" containing
-# the contents of what was in the original app/ directory.
+  # Build subdirectory filter options
+  local _subdirectory_filter_options=""
+  if [ -n "${_source_path}" ]; then
+    _subdirectory_filter_options="--subdirectory-filter ${_source_path}"
+  fi
 
-if [ -n "${subdirectory_filter}" ]; then
-  _subdirectory_filter_options="--subdirectory-filter ${subdirectory_filter}"
-else
-  _subdirectory_filter_options=''
-fi
+  # Build --env-filter for author/committer override
+  local _env_filter_script=""
+  if [[ -n "$GITMUX_AUTHOR_NAME" ]] || [[ -n "$GITMUX_COMMITTER_NAME" ]]; then
+    # Export for use in filter subprocess
+    export GITMUX_AUTHOR_NAME GITMUX_AUTHOR_EMAIL
+    export GITMUX_COMMITTER_NAME GITMUX_COMMITTER_EMAIL
+    # shellcheck disable=SC2016  # Single quotes are intentional - script is evaluated by filter-branch
+    _env_filter_script='
+      if [ -n "${GITMUX_AUTHOR_NAME:-}" ]; then
+        export GIT_AUTHOR_NAME="${GITMUX_AUTHOR_NAME}"
+        export GIT_AUTHOR_EMAIL="${GITMUX_AUTHOR_EMAIL}"
+      fi
+      if [ -n "${GITMUX_COMMITTER_NAME:-}" ]; then
+        export GIT_COMMITTER_NAME="${GITMUX_COMMITTER_NAME}"
+        export GIT_COMMITTER_EMAIL="${GITMUX_COMMITTER_EMAIL}"
+      fi
+    '
+    log "Author/committer override enabled"
+  fi
 
-# Build --env-filter for author/committer override
-_env_filter_script=""
-if [[ -n "$GITMUX_AUTHOR_NAME" ]] || [[ -n "$GITMUX_COMMITTER_NAME" ]]; then
-  # Export for use in filter subprocess
-  export GITMUX_AUTHOR_NAME GITMUX_AUTHOR_EMAIL
-  export GITMUX_COMMITTER_NAME GITMUX_COMMITTER_EMAIL
-  # shellcheck disable=SC2016  # Single quotes are intentional - script is evaluated by filter-branch
-  _env_filter_script='
-    if [ -n "${GITMUX_AUTHOR_NAME:-}" ]; then
-      export GIT_AUTHOR_NAME="${GITMUX_AUTHOR_NAME}"
-      export GIT_AUTHOR_EMAIL="${GITMUX_AUTHOR_EMAIL}"
-    fi
-    if [ -n "${GITMUX_COMMITTER_NAME:-}" ]; then
-      export GIT_COMMITTER_NAME="${GITMUX_COMMITTER_NAME}"
-      export GIT_COMMITTER_EMAIL="${GITMUX_COMMITTER_EMAIL}"
-    fi
-  '
-  log "Author/committer override enabled"
-  log "  GITMUX_AUTHOR_NAME=${GITMUX_AUTHOR_NAME:-<not set>}"
-  log "  GITMUX_AUTHOR_EMAIL=${GITMUX_AUTHOR_EMAIL:-<not set>}"
-  log "  GITMUX_COMMITTER_NAME=${GITMUX_COMMITTER_NAME:-<not set>}"
-  log "  GITMUX_COMMITTER_EMAIL=${GITMUX_COMMITTER_EMAIL:-<not set>}"
-fi
+  # Build --msg-filter for Co-authored-by handling
+  local _msg_filter_script=""
+  if [[ "$GITMUX_COAUTHOR_ACTION" == "claude" ]]; then
+    _msg_filter_script='sed -E \
+      -e "/[Cc]o-[Aa]uthored-[Bb]y:[[:space:]]*[Cc]laude[[:space:]]+[Cc]ode/d" \
+      -e "/[Cc]o-[Aa]uthored-[Bb]y:[[:space:]]*[Cc]laude[[:space:]]*</d" \
+      -e "/[Cc]o-[Aa]uthored-[Bb]y:.*@anthropic\.com/d" \
+      -e "/[Gg]enerated with.*[Cc]laude/d"'
+  elif [[ "$GITMUX_COAUTHOR_ACTION" == "all" ]]; then
+    _msg_filter_script='sed -E \
+      -e "/[Cc]o-[Aa]uthored-[Bb]y:/d" \
+      -e "/[Gg]enerated with[[:space:]]*\[/d"'
+  fi
 
-# Build --msg-filter for Co-authored-by handling
-_msg_filter_script=""
-if [[ "$GITMUX_COAUTHOR_ACTION" == "claude" ]]; then
-  # Remove only Claude/Anthropic attribution (preserves human co-authors)
-  # Patterns based on common Claude attribution formats:
-  # - Co-authored-by: Claude <...> or Claude Code <...>
-  # - Co-authored-by: *@anthropic.com
-  # - Generated with [Claude Code]... or [Claude]...
-  # Note: Patterns are ordered most-specific-first to ensure proper matching.
-  # The "Claude Code" pattern requires whitespace between words.
-  # The generic "Claude" pattern is anchored to the email bracket < to avoid
-  # false positives like "Claudette" or "McCloud". Edge case: a human named
-  # "Claude <email>" would be caught, but this is rare and acceptable given
-  # the primary use case (removing AI attribution from synced repositories).
-  _msg_filter_script='sed -E \
-    -e "/[Cc]o-[Aa]uthored-[Bb]y:[[:space:]]*[Cc]laude[[:space:]]+[Cc]ode/d" \
-    -e "/[Cc]o-[Aa]uthored-[Bb]y:[[:space:]]*[Cc]laude[[:space:]]*</d" \
-    -e "/[Cc]o-[Aa]uthored-[Bb]y:.*@anthropic\.com/d" \
-    -e "/[Gg]enerated with.*[Cc]laude/d"'
-  log "Claude/Anthropic attribution will be removed from commit messages (human co-authors preserved)"
-elif [[ "$GITMUX_COAUTHOR_ACTION" == "all" ]]; then
-  # Remove ALL Co-authored-by lines and AI-tool Generated-with signatures
-  # Note: No ^ anchor - trailers may have leading whitespace (consistent with claude mode)
-  # "Generated with" pattern is targeted at AI tool signatures (contains brackets like [Claude])
-  # to avoid matching unrelated uses of "generated with" in commit messages
-  _msg_filter_script='sed -E \
-    -e "/[Cc]o-[Aa]uthored-[Bb]y:/d" \
-    -e "/[Gg]enerated with[[:space:]]*\[/d"'
-  log "All Co-authored-by trailers and Generated-with signatures will be removed from commit messages"
-fi
+  # Build the filter-branch command dynamically
+  local _filter_branch_cmd="git filter-branch --tag-name-filter cat"
 
-# git filter-branch can take `git rev-list` options for
-# additional filtering control. For example, advanced
-# users can target specific files for their [new] repo.
-# <rev-list options>...
+  if [ -n "${_env_filter_script}" ]; then
+    _filter_branch_cmd="${_filter_branch_cmd} --env-filter '${_env_filter_script}'"
+  fi
 
-log "rev-list options --> ${rev_list_files}"
-log "subdirectory filter options --> ${_subdirectory_filter_options}"
-# Might need --unshallow
-#git filter-branch --prune-empty ${_subdirectory_filter_options}
-log "git filter-branch --tag-name-filter cat ${_subdirectory_filter_options:-} [...] ${rev_list_files}"
+  if [ -n "${_msg_filter_script}" ]; then
+    _filter_branch_cmd="${_filter_branch_cmd} --msg-filter '${_msg_filter_script}'"
+  fi
 
-# WARNING: git-filter-branch has a glut of gotchas...
-# Yeah, we know.
-export FILTER_BRANCH_SQUELCH_WARNING=1
+  log "rev-list options --> ${rev_list_files}"
+  log "subdirectory filter options --> ${_subdirectory_filter_options}"
+
+  # WARNING: git-filter-branch has a glut of gotchas...
+  # Yeah, we know.
+  export FILTER_BRANCH_SQUELCH_WARNING=1
+
+  if [ -n "${rev_list_files}" ]; then
+    log "Targeting paths/revisions: ${rev_list_files}"
+    # shellcheck disable=SC2086
+    _filter_branch_cmd="${_filter_branch_cmd} ${_subdirectory_filter_options} --index-filter \"
+      git read-tree --empty
+      git reset \\\$GIT_COMMIT -- ${rev_list_files}
+     \" -- --all -- ${rev_list_files}"
+    log "Running: ${_filter_branch_cmd}"
+    eval "${_filter_branch_cmd}"
+  else
+    # shellcheck disable=SC2086
+    _filter_branch_cmd="${_filter_branch_cmd} ${_subdirectory_filter_options}"
+    log "Running: ${_filter_branch_cmd}"
+    eval "${_filter_branch_cmd}"
+  fi
+
+  log "git filter-branch completed for mapping $((_mapping_idx + 1))."
+  log "$(git status)"
+  return 0
+}
 
 # Dry-run mode: show what would happen without making changes
 if [[ "${DRY_RUN}" == "true" ]]; then
@@ -732,12 +914,16 @@ if [[ "${DRY_RUN}" == "true" ]]; then
   echo "Source: ${source_repository}"
   echo "Destination: ${destination_repository}"
   echo "Branch: ${GIT_BRANCH} (${GIT_SHA})"
-  if [[ -n "${subdirectory_filter}" ]]; then
-    echo "Subdirectory filter: ${subdirectory_filter}"
-  fi
-  if [[ -n "${destination_path}" ]]; then
-    echo "Destination path: ${destination_path}"
-  fi
+  echo ""
+
+  # Show path mappings
+  echo "┌─ Path Mappings ──────────────────────────────────────────────────────────────┐"
+  echo "│  Total mappings: ${#PATH_MAPPINGS[@]}"
+  for ((i = 0; i < ${#PATH_MAPPINGS[@]}; i++)); do
+    parse_path_mapping "${PATH_MAPPINGS[i]}"
+    echo "│  [$(( i + 1 ))] '${PARSED_SOURCE:-<root>}' -> '${PARSED_DEST:-<root>}'"
+  done
+  echo "└──────────────────────────────────────────────────────────────────────────────┘"
   echo ""
 
   # Show author/committer changes
@@ -786,37 +972,6 @@ if [[ "${DRY_RUN}" == "true" ]]; then
   echo "└──────────────────────────────────────────────────────────────────────────────┘"
   echo ""
 
-  # Show sample commit messages with co-author trailers (if any)
-  if [[ -n "$GITMUX_COAUTHOR_ACTION" ]] && [[ "$GITMUX_COAUTHOR_ACTION" != "keep" ]]; then
-    # Count total commits with trailers (scan up to 1000 for performance)
-    _trailer_commit_count=$(git log --all --format="%H" | head -1000 | while read -r sha; do
-      git log -1 --format="%B" "$sha" 2>/dev/null | grep -qi "co-authored-by\|generated with" && echo "$sha"
-    done | wc -l | tr -d ' ')
-
-    # Get sample commits for display (up to 3)
-    _coauthor_commits=$(git log --all --format="%H" | head -50 | while read -r sha; do
-      git log -1 --format="%B" "$sha" 2>/dev/null | grep -qi "co-authored-by\|generated with" && echo "$sha"
-    done | head -3)
-
-    if [[ -n "$_coauthor_commits" ]]; then
-      echo "┌─ Commits with trailers that would be modified ───────────────────────────────┐"
-      echo "│  Found: ${_trailer_commit_count} commit(s) with Co-authored-by or Generated-with trailers"
-      echo "│  (scanned up to 1000 commits)"
-      echo "$_coauthor_commits" | while read -r sha; do
-        if [[ -n "$sha" ]]; then
-          echo "│"
-          echo "│  Commit: $(git log -1 --format="%h %s" "$sha" | cut -c1-70)"
-          echo "│  Trailers found:"
-          git log -1 --format="%B" "$sha" | grep -iE "co-authored-by|generated with" | while IFS= read -r trailer; do
-            echo "│    → $trailer"
-          done
-        fi
-      done
-      echo "└──────────────────────────────────────────────────────────────────────────────┘"
-      echo ""
-    fi
-  fi
-
   echo "═══════════════════════════════════════════════════════════════════════════════"
   echo "  To apply these changes, run without --dry-run"
   echo "═══════════════════════════════════════════════════════════════════════════════"
@@ -827,41 +982,67 @@ if [[ "${DRY_RUN}" == "true" ]]; then
   exit 0
 fi
 
-# Build the filter-branch command dynamically based on which filters are needed
-_filter_branch_cmd="git filter-branch --tag-name-filter cat"
+# Process all path mappings
+# For multi-path migrations, we:
+# 1. Process the first mapping on the current branch
+# 2. For subsequent mappings, reset to original state, process on a temp branch, then merge
+INTEGRATION_BRANCH="__gitmux_integration__"
+MAPPING_COUNT=${#PATH_MAPPINGS[@]}
 
-if [ -n "${_env_filter_script}" ]; then
-  _filter_branch_cmd="${_filter_branch_cmd} --env-filter '${_env_filter_script}'"
-fi
+log "Processing ${MAPPING_COUNT} path mapping(s)..."
 
-if [ -n "${_msg_filter_script}" ]; then
-  _filter_branch_cmd="${_filter_branch_cmd} --msg-filter '${_msg_filter_script}'"
-fi
+for ((mapping_idx = 0; mapping_idx < MAPPING_COUNT; mapping_idx++)); do
+  # Parse the current mapping
+  parse_path_mapping "${PATH_MAPPINGS[mapping_idx]}"
+  current_source="$PARSED_SOURCE"
+  current_dest="$PARSED_DEST"
 
-if [ -n "${rev_list_files}" ]; then
-  log "Targeting paths/revisions: ${rev_list_files}"
-  # shellcheck disable=SC2086  # Word splitting is intentional: _subdirectory_filter_options
-  # and rev_list_files contain multiple space-separated arguments that must expand separately.
-  # NOTE: File paths containing spaces are not supported due to this word splitting.
-  _filter_branch_cmd="${_filter_branch_cmd} ${_subdirectory_filter_options} --index-filter \"
-    git read-tree --empty
-    git reset \\\$GIT_COMMIT -- ${rev_list_files}
-   \" -- --all -- ${rev_list_files}"
-  log "Running: ${_filter_branch_cmd}"
-  # SAFETY: eval is safe here because all user-provided values (author/committer names/emails)
-  # are validated by _validate_safe_string() which rejects shell metacharacters.
-  # The filter scripts use only these validated values and git's own variables.
-  eval "${_filter_branch_cmd}"
-else
-  # shellcheck disable=SC2086  # Word splitting is intentional: _subdirectory_filter_options
-  # contains multiple space-separated arguments (e.g., "--subdirectory-filter path")
-  _filter_branch_cmd="${_filter_branch_cmd} ${_subdirectory_filter_options}"
-  log "Running: ${_filter_branch_cmd}"
-  # SAFETY: eval is safe here - see comment above regarding input validation
-  eval "${_filter_branch_cmd}"
-fi
+  if [[ $mapping_idx -eq 0 ]]; then
+    # First mapping: process directly on current branch
+    log "Processing first mapping on main branch..."
+    process_single_mapping "$current_source" "$current_dest" "$mapping_idx" "$MAPPING_COUNT"
 
-log "git filter-branch completed."
+    # Create integration branch from the result
+    git checkout -b "${INTEGRATION_BRANCH}"
+    log "Created integration branch: ${INTEGRATION_BRANCH}"
+  else
+    # Subsequent mappings: reset to original, process on temp branch, merge
+    log "Processing mapping $(( mapping_idx + 1 )) on temporary branch..."
+
+    # Create a temp branch for this mapping
+    TEMP_BRANCH="__gitmux_mapping_${mapping_idx}__"
+
+    # Reset to original state
+    git checkout --force "${ORIGINAL_HEAD}"
+    git checkout -b "${TEMP_BRANCH}"
+
+    # Remove filter-branch backup refs to allow re-running filter-branch
+    git for-each-ref --format='%(refname)' refs/original/ | while read -r ref; do
+      git update-ref -d "$ref"
+    done
+
+    # Process this mapping
+    process_single_mapping "$current_source" "$current_dest" "$mapping_idx" "$MAPPING_COUNT"
+
+    # Merge into integration branch
+    git checkout "${INTEGRATION_BRANCH}"
+    log "Merging mapping $(( mapping_idx + 1 )) into integration branch..."
+
+    # Use --allow-unrelated-histories since each filter-branch creates independent history
+    if ! git merge --allow-unrelated-histories -m "Merge mapping $(( mapping_idx + 1 )): ${current_source:-<root>} -> ${current_dest:-<root>}" "${TEMP_BRANCH}"; then
+      # If merge conflicts, try to auto-resolve by accepting both
+      git checkout --theirs .
+      git add -A
+      git commit -m "Merge mapping $(( mapping_idx + 1 )): ${current_source:-<root>} -> ${current_dest:-<root>}"
+    fi
+
+    # Clean up temp branch
+    git branch -D "${TEMP_BRANCH}"
+    log "Merged and cleaned up temporary branch."
+  fi
+done
+
+log "All ${MAPPING_COUNT} mapping(s) processed successfully."
 log "$(git status)"
 log "Adding 'destination' remote --> ${destination_repository}"
 git remote add destination "${destination_repository}"
@@ -870,8 +1051,11 @@ DESTINATION_PR_BRANCH_NAME="update-from-${GIT_BRANCH}-${GIT_SHA}"
 if [[ -n "${_append_to_pr_branch_name}" ]]; then
   DESTINATION_PR_BRANCH_NAME="${DESTINATION_PR_BRANCH_NAME}-rebase-strategy-${_append_to_pr_branch_name}"
 fi
-git checkout --no-track -b "${DESTINATION_PR_BRANCH_NAME}"
-log "Status after filter-branch and checkout -b:"
+
+# Rename integration branch to the PR branch name
+git branch -m "${INTEGRATION_BRANCH}" "${DESTINATION_PR_BRANCH_NAME}"
+log "Renamed integration branch to: ${DESTINATION_PR_BRANCH_NAME}"
+log "Status after processing mappings:"
 log "$(git status)"
 # Must exist in order to set-upstream-to.
 # git branch --set-upstream-to=destination/${DESTINATION_PR_BRANCH_NAME}
@@ -886,7 +1070,7 @@ if ! _repo_existence="$(git fetch destination 2>&1)"; then
     ########## <GH CREATE REPO> ################
     # `gh repo create` runs from inside a git repository. (weird)
     log "gh is creating your new repository now! ( ${destination_owner}/${destination_project} )"
-    NEW_REPOSITORY_DESCRIPTION="New repository from ${source_url} (${subdirectory_filter:-/})"
+    NEW_REPOSITORY_DESCRIPTION="New repository from ${source_url} (${MAPPING_COUNT} path mapping(s))"
     # gh repo create [<name>] [flags]
     TMPGHCREATEWORKDIR=$(mktemp -t 'gitmux-gh-create-destination-XXXXXX' -d || errxit "Failed to create tmpdir.")
     # Note: If you want to move the --orphan bits below, remove --bare from the next line.
@@ -1084,6 +1268,15 @@ _canonical_destination_https_url="https://${destination_domain}/${destination_ow
 
 echo "Now create a pull request from ${DESTINATION_PR_BRANCH_NAME} into ${destination_branch}"
 
+# Build path mappings table for PR description
+_path_mappings_table="| Source | Destination |
+|--------|-------------|"
+for mapping in "${PATH_MAPPINGS[@]}"; do
+  parse_path_mapping "$mapping"
+  _path_mappings_table="${_path_mappings_table}
+| \`${PARSED_SOURCE:-<root>}\` | \`${PARSED_DEST:-<root>}\` |"
+done
+
 PR_TITLE="Sync from ${source_uri} \`${source_git_ref:-${GIT_BRANCH}}\` revision \`${GIT_SHA}\`"
 PR_DESCRIPTION=$(printf "%s\n" \
   "${PR_TITLE}" \
@@ -1095,15 +1288,14 @@ PR_DESCRIPTION=$(printf "%s\n" \
   "Source URL: [\`${_canonical_source_https_url}\`](${_canonical_source_https_url})" \
   "Source git ref (if provided): \`${source_git_ref:-n/a}\`" \
   "Source git branch: \`${source_git_ref:-${GIT_BRANCH}}\` (\`${GIT_SHA}\`)" \
-  "Directory within source repository (if provided, else entire repository): \`${subdirectory_filter:-/}\`" \
-  "Repository url: [\`https://${source_domain}/${source_owner}/${source_project}/tree/${GIT_SHA}/${SUBDIRECTORY_FILTER}\`](https://${source_domain}/${source_owner}/${source_project}/tree/${GIT_SHA}/${SUBDIRECTORY_FILTER})" \
+  "" \
+  "## Path mappings" \
+  "${_path_mappings_table}" \
   "" \
   "## Destination repository details" \
   "Destination URL: [\`${_canonical_destination_https_url}\`](${_canonical_destination_https_url})" \
   "PR Branch at Destination (head): \`${DESTINATION_PR_BRANCH_NAME}\`" \
   "Destination branch (base): \`${DESTINATION_BRANCH}\`" \
-  "PR Branch URL: [\`https://${destination_domain}/${destination_owner}/${destination_project}/tree/${DESTINATION_PR_BRANCH_NAME}/${DESTINATION_PATH:-}\`](https://${destination_domain}/${destination_owner}/${destination_project}/tree/${DESTINATION_PR_BRANCH_NAME}/${DESTINATION_PATH:-})" \
-  "Destination path (if applicable, or identical in structure to source): \`${DESTINATION_PATH:-n/a}\`" \
   "" \
   "------------------------------" \
 )
