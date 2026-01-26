@@ -788,7 +788,10 @@ process_single_mapping() {
   if [[ -n "$_dest_path" ]] && ! [[ "${_dest_path}" == '/' ]]; then
     log "Destination path ( ${_dest_path} ) was specified. Do a tango."
     # ( Must use an intermediate temporary directory )
-    mkdir -p __tmp__
+    if ! mkdir -p __tmp__; then
+      errcho "Failed to create temporary directory __tmp__"
+      return 1
+    fi
     log "Temp dir created."
 
     if [ -n "${_source_path}" ]; then
@@ -798,23 +801,42 @@ process_single_mapping() {
         errcho "Source path '${_source_path}' does not exist"
         return 1
       fi
-      if ! git mv "${_source_path}"/* __tmp__ 2>&1; then
+      # Check if source has files (use nullglob to handle empty case)
+      shopt -s nullglob
+      local _src_files=("${_source_path}"/*)
+      shopt -u nullglob
+      if [[ ${#_src_files[@]} -eq 0 ]]; then
+        errcho "Source path '${_source_path}' is empty - nothing to migrate"
+        return 1
+      fi
+      local _mv_output
+      if ! _mv_output=$(git mv "${_src_files[@]}" __tmp__ 2>&1); then
         errcho "Failed to move files from '${_source_path}' to temp directory"
-        errcho "Source path may be empty or contain unmovable files"
+        errcho "Git error: ${_mv_output}"
         return 1
       fi
       log "Creating destination path ${_source_path}/${_dest_path}."
-      mkdir -p "${_source_path}/${_dest_path}"
+      if ! mkdir -p "${_source_path}/${_dest_path}"; then
+        errcho "Failed to create destination path '${_source_path}/${_dest_path}'"
+        return 1
+      fi
       log "Moving content from tempdir into ${_source_path}/${_dest_path}."
-      if ! git mv __tmp__/* "${_source_path}/${_dest_path}/" 2>&1; then
+      shopt -s nullglob
+      local _tmp_files=(__tmp__/*)
+      shopt -u nullglob
+      if ! _mv_output=$(git mv "${_tmp_files[@]}" "${_source_path}/${_dest_path}/" 2>&1); then
         errcho "Failed to move files from temp directory to '${_source_path}/${_dest_path}/'"
+        errcho "Git error: ${_mv_output}"
         return 1
       fi
       log "Cleaning up tempdir."
       if [[ -d __tmp__ ]] && ! rm -rf __tmp__; then
         errcho "Warning: Failed to clean up temp directory __tmp__"
       fi
-      git add --update --refresh "${_source_path:-.}"
+      if ! git add --update "${_source_path:-.}"; then
+        errcho "Failed to stage updated files in '${_source_path:-.}'"
+        return 1
+      fi
     else
       log "Moving repository files into tempdir."
       # First create a random file in case the directory is empty
@@ -827,31 +849,46 @@ process_single_mapping() {
       # Loop through files to avoid extglob issues in functions
       # Enable nullglob to handle empty directories gracefully
       local _moved_count=0
+      local _mv_output
       shopt -s nullglob
       for _item in *; do
         if [[ "$_item" != "__tmp__" ]]; then
-          if ! git mv "$_item" __tmp__/ 2>&1; then
+          if ! _mv_output=$(git mv "$_item" __tmp__/ 2>&1); then
             shopt -u nullglob
             errcho "Failed to move '$_item' to temp directory"
+            errcho "Git error: ${_mv_output}"
             return 1
           fi
-          ((_moved_count++)) || true
+          _moved_count=$((_moved_count + 1))
         fi
       done
       shopt -u nullglob
       if [[ $_moved_count -eq 0 ]]; then
-        errcho "Warning: No files to move (directory appears empty)"
+        errcho "Source repository appears empty - nothing to migrate"
+        return 1
       fi
-      mkdir -p "${_dest_path}"
-      if ! git mv __tmp__/* "${_dest_path}/" 2>&1; then
+      if ! mkdir -p "${_dest_path}"; then
+        errcho "Failed to create destination path '${_dest_path}'"
+        return 1
+      fi
+      # Move files from temp to destination (use array to handle nullglob properly)
+      shopt -s nullglob
+      local _tmp_files=(__tmp__/*)
+      shopt -u nullglob
+      if ! _mv_output=$(git mv "${_tmp_files[@]}" "${_dest_path}/" 2>&1); then
         errcho "Failed to move files from temp directory to '${_dest_path}/'"
+        errcho "Git error: ${_mv_output}"
         return 1
       fi
       # Trying to ensure we get all the commit history...
-      git add --update --refresh
+      if ! git add --update .; then
+        errcho "Failed to stage updated files"
+        return 1
+      fi
       log "Cleaning up ${_rname}"
-      if ! git rm -f "${_dest_path}/${_rname}" 2>&1; then
+      if ! _mv_output=$(git rm -f "${_dest_path}/${_rname}" 2>&1); then
         errcho "Warning: Failed to clean up temporary file '${_dest_path}/${_rname}'"
+        errcho "Git error: ${_mv_output}"
       fi
       log "Cleaning up tempdir."
       if [[ -d __tmp__ ]] && ! rm -rf __tmp__; then
@@ -971,7 +1008,10 @@ if [[ "${DRY_RUN}" == "true" ]]; then
   echo "┌─ Path Mappings ──────────────────────────────────────────────────────────────┐"
   echo "│  Total mappings: ${#PATH_MAPPINGS[@]}"
   for ((i = 0; i < ${#PATH_MAPPINGS[@]}; i++)); do
-    parse_path_mapping "${PATH_MAPPINGS[i]}"
+    if ! parse_path_mapping "${PATH_MAPPINGS[i]}"; then
+      echo "│  [$(( i + 1 ))] ERROR: Invalid mapping '${PATH_MAPPINGS[i]}'"
+      continue
+    fi
     echo "│  [$(( i + 1 ))] '${PARSED_SOURCE:-<root>}' -> '${PARSED_DEST:-<root>}'"
   done
   echo "└──────────────────────────────────────────────────────────────────────────────┘"
@@ -1101,30 +1141,39 @@ for ((mapping_idx = 0; mapping_idx < MAPPING_COUNT; mapping_idx++)); do
     log "Merging mapping $(( mapping_idx + 1 )) into integration branch..."
 
     # Use --allow-unrelated-histories since each filter-branch creates independent history
+    _merge_output=""
     if ! git merge --allow-unrelated-histories -m "Merge mapping $(( mapping_idx + 1 )): ${current_source:-<root>} -> ${current_dest:-<root>}" "${TEMP_BRANCH}"; then
       # Merge conflict: auto-resolve by preferring incoming changes (theirs)
       # This is appropriate because each mapping targets different destination paths,
       # so conflicts indicate the temp branch has the desired new content.
+      # Note: This may overwrite integration branch changes to conflicting files.
       errcho "Merge conflict detected for mapping $(( mapping_idx + 1 )). Resolving with --theirs strategy..."
-      if ! git checkout --theirs . 2>&1; then
+      if ! _merge_output=$(git checkout --theirs . 2>&1); then
         errcho "Failed to checkout --theirs. Complex conflict requires manual resolution."
+        errcho "Git error: ${_merge_output}"
         errcho "Workspace: ${_WORKSPACE}"
         errxit "Merge resolution failed"
       fi
-      if ! git add --update . 2>&1; then
+      # Use 'git add .' to stage all changes including new files from --theirs
+      # (git add --update would miss new files, causing incomplete merges)
+      if ! _merge_output=$(git add . 2>&1); then
         errcho "Failed to stage resolved files."
+        errcho "Git error: ${_merge_output}"
         errxit "Merge resolution failed"
       fi
-      if ! git commit -m "Merge mapping $(( mapping_idx + 1 )): ${current_source:-<root>} -> ${current_dest:-<root>}" 2>&1; then
+      if ! _merge_output=$(git commit -m "Merge mapping $(( mapping_idx + 1 )): ${current_source:-<root>} -> ${current_dest:-<root>}" 2>&1); then
         errcho "Failed to commit merge resolution."
+        errcho "Git error: ${_merge_output}"
         errxit "Merge resolution failed"
       fi
       errcho "Merge conflict resolved using --theirs strategy."
     fi
 
     # Clean up temp branch
-    if ! git branch -D "${TEMP_BRANCH}" 2>&1; then
+    _cleanup_output=""
+    if ! _cleanup_output=$(git branch -D "${TEMP_BRANCH}" 2>&1); then
       errcho "Warning: Failed to delete temporary branch '${TEMP_BRANCH}'"
+      errcho "Git error: ${_cleanup_output}"
     fi
     log "Merged and cleaned up temporary branch."
   fi
