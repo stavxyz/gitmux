@@ -255,6 +255,28 @@ check_filter_repo_available() {
   command -v git-filter-repo &> /dev/null
 }
 
+# Show installation instructions for git-filter-repo.
+# Used by both early validation and preflight checks.
+_show_filter_repo_install_help() {
+  log_error ""
+  log_error "  📦 Install: brew install git-filter-repo (macOS)"
+  log_error "             apt install git-filter-repo (Debian/Ubuntu)"
+  log_error "             pip install git-filter-repo"
+  log_error ""
+}
+
+# Check Python version for filter-repo compatibility.
+# Returns:
+#   0 if Python 3.6+ is available
+#   1 if Python version is too old
+#   2 if python3 is not installed
+_check_python_version() {
+  if ! command -v python3 &>/dev/null; then
+    return 2
+  fi
+  python3 -c "import sys; exit(0 if sys.version_info >= (3,6) else 1)" 2>/dev/null
+}
+
 # Determine which filter backend to use.
 # Uses GITMUX_FILTER_BACKEND setting, with auto-detection for "auto" mode.
 # Globals:
@@ -270,7 +292,8 @@ get_filter_backend() {
       echo "filter-branch"
       ;;
     auto|*)
-      if check_filter_repo_available; then
+      # Auto mode: use filter-repo if available AND Python 3.6+ is present
+      if check_filter_repo_available && _check_python_version; then
         echo "filter-repo"
       else
         echo "filter-branch"
@@ -683,11 +706,7 @@ esac
 # Validate filter-repo is available when explicitly requested
 if [[ "$GITMUX_FILTER_BACKEND" == "filter-repo" ]] && ! check_filter_repo_available; then
   log_error "git-filter-repo not found but explicitly requested via --filter-backend"
-  log_error ""
-  log_error "  📦 Install: brew install git-filter-repo (macOS)"
-  log_error "             apt install git-filter-repo (Debian/Ubuntu)"
-  log_error "             pip install git-filter-repo"
-  log_error ""
+  _show_filter_repo_install_help
   errxit "git-filter-repo not found"
 fi
 
@@ -927,20 +946,21 @@ preflight_checks() {
   if [[ "$_selected_backend" == "filter-repo" ]]; then
     # User explicitly requested filter-repo
     if check_filter_repo_available; then
-      # Check Python version
-      if python3 -c "import sys; exit(0 if sys.version_info >= (3,6) else 1)" 2>/dev/null; then
+      # Check Python version with better error differentiation
+      _check_python_version
+      local _py_status=$?
+      if [[ $_py_status -eq 0 ]]; then
         _preflight_result pass "git-filter-repo available (explicit)"
+      elif [[ $_py_status -eq 2 ]]; then
+        _preflight_result fail "git-filter-repo requires python3 but it's not installed"
+        _checks_passed=false
       else
         _preflight_result fail "git-filter-repo requires Python 3.6+"
         _checks_passed=false
       fi
     else
       _preflight_result fail "git-filter-repo not found but explicitly requested"
-      log_error ""
-      log_error "  📦 Install: brew install git-filter-repo (macOS)"
-      log_error "             apt install git-filter-repo (Debian/Ubuntu)"
-      log_error "             pip install git-filter-repo"
-      log_error ""
+      _show_filter_repo_install_help
       _checks_passed=false
     fi
   elif [[ "$_selected_backend" == "filter-branch" ]]; then
@@ -948,8 +968,12 @@ preflight_checks() {
   else
     # Auto mode
     if check_filter_repo_available; then
-      if python3 -c "import sys; exit(0 if sys.version_info >= (3,6) else 1)" 2>/dev/null; then
+      _check_python_version
+      local _py_status=$?
+      if [[ $_py_status -eq 0 ]]; then
         _preflight_result pass "git-filter-repo available (using filter-repo backend)"
+      elif [[ $_py_status -eq 2 ]]; then
+        _preflight_result warn "git-filter-repo found but python3 not installed (will use filter-branch)"
       else
         _preflight_result warn "git-filter-repo found but Python < 3.6 (will use filter-branch)"
       fi
@@ -1435,10 +1459,11 @@ filter_run_filter_branch() {
 #   $2 - dest_path (destination path for reorganization)
 #   $3 - mapping_idx (index for logging)
 # Globals read:
-#   GITMUX_AUTHOR_NAME, GITMUX_AUTHOR_EMAIL
-#   GITMUX_COMMITTER_NAME, GITMUX_COMMITTER_EMAIL
-#   GITMUX_COAUTHOR_ACTION
-#   rev_list_files
+#   GITMUX_AUTHOR_NAME, GITMUX_AUTHOR_EMAIL - rewrites commit author
+#   GITMUX_COMMITTER_NAME - checked but warns if different from author
+#     (filter-repo callbacks apply same values to author AND committer)
+#   GITMUX_COAUTHOR_ACTION - controls co-author trailer removal
+#   rev_list_files - specific files to extract
 # Returns:
 #   0 on success, 1 on failure
 filter_run_filter_repo() {
@@ -1474,20 +1499,20 @@ filter_run_filter_repo() {
     done
   fi
 
-  # Handle author/committer rewrite using mailmap
-  local _mailmap_file=""
-  if [[ -n "$GITMUX_AUTHOR_NAME" ]] || [[ -n "$GITMUX_COMMITTER_NAME" ]]; then
-    _mailmap_file=$(mktemp)
+  # Handle author/committer rewrite using name/email callbacks
+  # Using callbacks instead of mailmap for reliable wildcard-like behavior
+  if [[ -n "$GITMUX_AUTHOR_NAME" ]]; then
+    _filter_repo_args+=("--name-callback" "return b'${GITMUX_AUTHOR_NAME}' if commit.author_name else name")
+    _filter_repo_args+=("--email-callback" "return b'${GITMUX_AUTHOR_EMAIL}' if commit.author_email else email")
+    log "Author override enabled: ${GITMUX_AUTHOR_NAME} <${GITMUX_AUTHOR_EMAIL}>"
+  fi
 
-    # Build mailmap entries
-    # Format: "New Name <new@email.com> <*>" to match all old emails
-    # Note: filter-repo's mailmap rewrites both author AND committer
-    if [[ -n "$GITMUX_AUTHOR_NAME" ]]; then
-      echo "${GITMUX_AUTHOR_NAME} <${GITMUX_AUTHOR_EMAIL}> <*>" >> "${_mailmap_file}"
-    fi
-
-    _filter_repo_args+=("--mailmap" "${_mailmap_file}")
-    log "Author/committer override enabled via mailmap"
+  # Handle separate committer override if specified
+  if [[ -n "$GITMUX_COMMITTER_NAME" ]] && [[ "$GITMUX_COMMITTER_NAME" != "$GITMUX_AUTHOR_NAME" ]]; then
+    # Note: filter-repo callbacks can't distinguish author vs committer context directly
+    # When committer differs from author, log a warning about this limitation
+    log_warn "filter-repo backend applies same name/email to both author and committer"
+    log_warn "Use filter-branch backend for separate author/committer values"
   fi
 
   # Handle Co-authored-by removal using message-callback
@@ -1520,13 +1545,8 @@ return result
 
   if ! git filter-repo "${_filter_repo_args[@]}"; then
     log_error "git filter-repo failed for mapping $((_mapping_idx + 1))"
-    # Clean up mailmap if created
-    [[ -n "$_mailmap_file" ]] && rm -f "$_mailmap_file"
     return 1
   fi
-
-  # Clean up mailmap if created
-  [[ -n "$_mailmap_file" ]] && rm -f "$_mailmap_file"
 
   return 0
 }
