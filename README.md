@@ -335,7 +335,7 @@ The diff algorithm determines how git figures out what changed between two versi
 | Algorithm | Description | Best for |
 |-----------|-------------|----------|
 | `histogram` | gitmux default. Extends patience to support low-occurrence common elements | Code with repeated patterns or blocks |
-| `patience` | Matches unique lines first, then fills in gaps | Code with clear structure; can be slow on large files |
+| `patience` | Matches unique lines first, then fills in gaps | Highly structured code |
 | `minimal` | Spends extra time to produce the smallest diff | When you need the most compact diff |
 | `myers` | Git's default. Basic greedy diff algorithm | General purpose, fast |
 
@@ -345,9 +345,9 @@ The diff algorithm determines how git figures out what changed between two versi
 ./gitmux.sh -r source -t dest -X patience  # shorthand for patience algorithm
 ```
 
-**When to use what:**
-- **`histogram`** (gitmux default) — good for code; shows structural changes more clearly
-- **`patience`** (shorthand `-X patience`) — good for highly structured code, but may be slow on large files
+**When to use what** (general guidance):
+- **`histogram`** (gitmux default) — often better for code with similar or repeated structures
+- **`patience`** (shorthand `-X patience`) — good for highly structured code
 - **`minimal`** — when you want the mathematically smallest diff, regardless of speed
 - **`myers`** (Git's default) — fast and predictable; good baseline if other algorithms produce unexpected results
 

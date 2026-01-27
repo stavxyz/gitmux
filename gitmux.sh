@@ -1060,7 +1060,7 @@ if [[ -z "${REBASE_OPTIONS}" ]]; then
   fi
   REBASE_OPTIONS="--keep-empty --autostash --merge --strategy recursive --strategy-option ${MERGE_STRATEGY_OPTION_FOR_REBASE}"
   # Use histogram diff algorithm by default - extends patience algorithm to
-  # better handle low-occurrence common elements in code
+  # support low-occurrence common elements (see: git diff-options docs)
   # Skip if user explicitly chose a diff algorithm via -X (patience or diff-algorithm=*)
   if [[ "${MERGE_STRATEGY_OPTION_FOR_REBASE}" != "patience" ]] && \
      [[ ! "${MERGE_STRATEGY_OPTION_FOR_REBASE}" =~ ^diff-algorithm= ]]; then
