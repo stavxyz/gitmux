@@ -869,3 +869,245 @@ HELPER_HEADER
 
     teardown_local_repos
 }
+
+# =============================================================================
+# Log Level Tests
+# =============================================================================
+
+@test "validation: --log-level debug is valid" {
+    run bash -c "cd '$BATS_TEST_DIRNAME/..' && ./gitmux.sh --log-level debug -r foo -t bar 2>&1"
+    [[ ! "$output" =~ "--log-level must be" ]]
+}
+
+@test "validation: --log-level info is valid" {
+    run bash -c "cd '$BATS_TEST_DIRNAME/..' && ./gitmux.sh --log-level info -r foo -t bar 2>&1"
+    [[ ! "$output" =~ "--log-level must be" ]]
+}
+
+@test "validation: --log-level warning is valid" {
+    run bash -c "cd '$BATS_TEST_DIRNAME/..' && ./gitmux.sh --log-level warning -r foo -t bar 2>&1"
+    [[ ! "$output" =~ "--log-level must be" ]]
+}
+
+@test "validation: --log-level error is valid" {
+    run bash -c "cd '$BATS_TEST_DIRNAME/..' && ./gitmux.sh --log-level error -r foo -t bar 2>&1"
+    [[ ! "$output" =~ "--log-level must be" ]]
+}
+
+@test "validation: --log-level with invalid value fails" {
+    run bash -c "cd '$BATS_TEST_DIRNAME/..' && ./gitmux.sh --log-level invalid -r foo -t bar 2>&1"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" =~ "--log-level must be" ]]
+}
+
+@test "validation: -L short flag is recognized" {
+    run bash -c "cd '$BATS_TEST_DIRNAME/..' && ./gitmux.sh -L debug -r foo -t bar 2>&1"
+    [[ ! "$output" =~ "Unknown option" ]]
+    [[ ! "$output" =~ "--log-level must be" ]]
+}
+
+@test "validation: GITMUX_LOG_LEVEL environment variable is recognized" {
+    run bash -c "cd '$BATS_TEST_DIRNAME/..' && GITMUX_LOG_LEVEL=debug ./gitmux.sh -r foo -t bar 2>&1"
+    [[ ! "$output" =~ "--log-level must be" ]]
+}
+
+@test "validation: GITMUX_LOG_LEVEL with invalid value fails" {
+    run bash -c "cd '$BATS_TEST_DIRNAME/..' && GITMUX_LOG_LEVEL=invalid ./gitmux.sh -r foo -t bar 2>&1"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" =~ "--log-level must be" ]]
+}
+
+@test "validation: -v flag sets log level to debug" {
+    # -v should produce debug output (verbose mode)
+    # Test that -v doesn't conflict with --log-level validation
+    run bash -c "cd '$BATS_TEST_DIRNAME/..' && ./gitmux.sh -v -r foo -t bar 2>&1"
+    [[ ! "$output" =~ "--log-level must be" ]]
+}
+
+# =============================================================================
+# Pre-flight Check Tests
+# =============================================================================
+
+@test "validation: --skip-preflight option is recognized" {
+    run bash -c "cd '$BATS_TEST_DIRNAME/..' && ./gitmux.sh --skip-preflight -r foo -t bar 2>&1"
+    [[ ! "$output" =~ "Unknown option" ]]
+    [[ ! "$output" =~ "Unimplemented option" ]]
+}
+
+@test "validation: -S short flag is recognized" {
+    run bash -c "cd '$BATS_TEST_DIRNAME/..' && ./gitmux.sh -S -r foo -t bar 2>&1"
+    [[ ! "$output" =~ "Unknown option" ]]
+    [[ ! "$output" =~ "Unimplemented option" ]]
+}
+
+@test "preflight: shows pre-flight checks message at info level" {
+    # With skip-preflight off, it should run checks and show output
+    # Use a non-existent repo to see the pre-flight failure
+    run bash -c "cd '$BATS_TEST_DIRNAME/..' && ./gitmux.sh -L info -r https://github.com/nonexistent/repo -t https://github.com/nonexistent/dest 2>&1"
+    # Should show pre-flight checks message
+    [[ "$output" =~ "pre-flight" ]] || [[ "$output" =~ "Pre-flight" ]]
+}
+
+@test "preflight: skipped when --skip-preflight is used" {
+    # With --skip-preflight, we bypass the checks
+    run bash -c "cd '$BATS_TEST_DIRNAME/..' && ./gitmux.sh --skip-preflight -r https://github.com/nonexistent/repo -t https://github.com/nonexistent/dest 2>&1"
+    # Should NOT show pre-flight checks message (though may still fail on other errors)
+    [[ ! "$output" =~ "Running pre-flight checks" ]]
+}
+
+@test "preflight: skipped during dry-run mode" {
+    # During --dry-run, pre-flight checks are skipped since we're just previewing
+    run bash -c "cd '$BATS_TEST_DIRNAME/..' && ./gitmux.sh --dry-run -r https://github.com/nonexistent/repo -t https://github.com/nonexistent/dest 2>&1"
+    # Should NOT show pre-flight checks message
+    [[ ! "$output" =~ "Running pre-flight checks" ]]
+}
+
+# =============================================================================
+# Log Level Hierarchy Tests (using helper functions)
+# =============================================================================
+
+setup_log_helpers() {
+    export GITMUX_SCRIPT="${BATS_TEST_DIRNAME}/../gitmux.sh"
+    export LOG_HELPER="${BATS_TEST_TMPDIR}/log_helper.sh"
+
+    # Extract logging functions from gitmux.sh
+    cat > "${LOG_HELPER}" << 'HELPER_HEADER'
+#!/usr/bin/env bash
+# Initialize colors (disabled for testing)
+_LOG_COLOR_RESET=''
+_LOG_COLOR_DEBUG=''
+_LOG_COLOR_INFO=''
+_LOG_COLOR_WARN=''
+_LOG_COLOR_ERROR=''
+HELPER_HEADER
+
+    # Extract functions
+    {
+        sed -n '/^_log_level_to_num()/,/^}/p' "${GITMUX_SCRIPT}"
+        sed -n '/^_should_log()/,/^}/p' "${GITMUX_SCRIPT}"
+        sed -n '/^log_debug()/,/^}/p' "${GITMUX_SCRIPT}"
+        sed -n '/^log_info()/,/^}/p' "${GITMUX_SCRIPT}"
+        sed -n '/^log_warn()/,/^}/p' "${GITMUX_SCRIPT}"
+        sed -n '/^log_error()/,/^}/p' "${GITMUX_SCRIPT}"
+    } >> "${LOG_HELPER}"
+
+    source "${LOG_HELPER}"
+}
+
+@test "log_level_to_num: debug returns 0" {
+    setup_log_helpers
+    result=$(_log_level_to_num "debug")
+    [[ "$result" == "0" ]]
+}
+
+@test "log_level_to_num: info returns 1" {
+    setup_log_helpers
+    result=$(_log_level_to_num "info")
+    [[ "$result" == "1" ]]
+}
+
+@test "log_level_to_num: warning returns 2" {
+    setup_log_helpers
+    result=$(_log_level_to_num "warning")
+    [[ "$result" == "2" ]]
+}
+
+@test "log_level_to_num: error returns 3" {
+    setup_log_helpers
+    result=$(_log_level_to_num "error")
+    [[ "$result" == "3" ]]
+}
+
+@test "log_level_to_num: unknown defaults to 1 (info)" {
+    setup_log_helpers
+    result=$(_log_level_to_num "unknown")
+    [[ "$result" == "1" ]]
+}
+
+@test "should_log: debug message shown at debug level" {
+    setup_log_helpers
+    LOG_LEVEL=debug
+    run _should_log debug
+    [[ "$status" -eq 0 ]]
+}
+
+@test "should_log: debug message hidden at info level" {
+    setup_log_helpers
+    LOG_LEVEL=info
+    run _should_log debug
+    [[ "$status" -ne 0 ]]
+}
+
+@test "should_log: info message shown at debug level" {
+    setup_log_helpers
+    LOG_LEVEL=debug
+    run _should_log info
+    [[ "$status" -eq 0 ]]
+}
+
+@test "should_log: info message shown at info level" {
+    setup_log_helpers
+    LOG_LEVEL=info
+    run _should_log info
+    [[ "$status" -eq 0 ]]
+}
+
+@test "should_log: info message hidden at warning level" {
+    setup_log_helpers
+    LOG_LEVEL=warning
+    run _should_log info
+    [[ "$status" -ne 0 ]]
+}
+
+@test "should_log: warning message shown at warning level" {
+    setup_log_helpers
+    LOG_LEVEL=warning
+    run _should_log warning
+    [[ "$status" -eq 0 ]]
+}
+
+@test "should_log: error message always shown" {
+    setup_log_helpers
+    LOG_LEVEL=error
+    run _should_log error
+    [[ "$status" -eq 0 ]]
+}
+
+@test "log_debug: produces output at debug level" {
+    setup_log_helpers
+    LOG_LEVEL=debug
+    run log_debug "test message"
+    [[ "$output" =~ "[DEBUG]" ]]
+    [[ "$output" =~ "test message" ]]
+}
+
+@test "log_debug: suppressed at info level" {
+    setup_log_helpers
+    LOG_LEVEL=info
+    run log_debug "test message"
+    [[ -z "$output" ]]
+}
+
+@test "log_info: produces output at info level" {
+    setup_log_helpers
+    LOG_LEVEL=info
+    run log_info "test message"
+    [[ "$output" =~ "[INFO]" ]]
+    [[ "$output" =~ "test message" ]]
+}
+
+@test "log_warn: produces output at warning level" {
+    setup_log_helpers
+    LOG_LEVEL=warning
+    run log_warn "test message"
+    [[ "$output" =~ "[WARN]" ]]
+    [[ "$output" =~ "test message" ]]
+}
+
+@test "log_error: always produces output" {
+    setup_log_helpers
+    LOG_LEVEL=error
+    run log_error "test message"
+    [[ "$output" =~ "[ERROR]" ]]
+    [[ "$output" =~ "test message" ]]
+}

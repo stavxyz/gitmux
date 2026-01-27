@@ -64,7 +64,110 @@ set -euoE pipefail
 # Must be enabled at parse time for extglob patterns to work
 shopt -s extglob
 
-# Print message to stderr.
+#
+# Logging system with configurable log levels
+#
+# Log levels (in order of severity):
+#   debug   - Detailed diagnostic information (command outputs, internal state)
+#   info    - Key milestones and status updates (default)
+#   warning - Non-fatal issues that may need attention
+#   error   - Fatal errors that stop execution
+#
+# Configuration precedence (highest to lowest):
+#   1. CLI flag: --log-level / -L
+#   2. Environment variable: GITMUX_LOG_LEVEL
+#   3. Default: info
+#
+# The -v flag sets log level to debug for backwards compatibility.
+#
+
+# Default log level (can be overridden by env var, then CLI)
+LOG_LEVEL="${GITMUX_LOG_LEVEL:-info}"
+
+# ANSI color codes for log levels (used when stderr is a TTY)
+_LOG_COLOR_RESET=''
+_LOG_COLOR_DEBUG=''
+_LOG_COLOR_INFO=''
+_LOG_COLOR_WARN=''
+_LOG_COLOR_ERROR=''
+
+# Initialize colors if stderr is a TTY
+if [[ -t 2 ]]; then
+  _LOG_COLOR_RESET=$'\033[0m'
+  _LOG_COLOR_DEBUG=$'\033[2m'      # dim/gray
+  _LOG_COLOR_INFO=$'\033[0m'       # default
+  _LOG_COLOR_WARN=$'\033[33m'      # yellow
+  _LOG_COLOR_ERROR=$'\033[31m'     # red
+fi
+
+# Convert log level name to numeric value for comparison.
+# Arguments:
+#   $1 - Log level name (debug, info, warning, error)
+# Returns:
+#   Numeric value (0-3) to stdout, 1 for unknown level
+_log_level_to_num() {
+  case "$1" in
+    debug)   echo 0 ;;
+    info)    echo 1 ;;
+    warning) echo 2 ;;
+    error)   echo 3 ;;
+    *)       echo 1 ;;  # default to info for unknown
+  esac
+}
+
+# Check if a message at given level should be logged.
+# Arguments:
+#   $1 - Message level (debug, info, warning, error)
+# Returns:
+#   0 if should log, 1 if should suppress
+_should_log() {
+  local msg_level="$1"
+  local current_num
+  local msg_num
+  current_num=$(_log_level_to_num "$LOG_LEVEL")
+  msg_num=$(_log_level_to_num "$msg_level")
+  [[ $msg_num -ge $current_num ]]
+}
+
+# Log a debug message (detailed diagnostic information).
+# Only shown when LOG_LEVEL=debug.
+# Arguments:
+#   $@ - Message(s) to print
+log_debug() {
+  if _should_log debug; then
+    printf "${_LOG_COLOR_DEBUG}[DEBUG]${_LOG_COLOR_RESET} %s\n" "$@" >&2
+  fi
+}
+
+# Log an info message (key milestones and status updates).
+# Shown when LOG_LEVEL is debug or info.
+# Arguments:
+#   $@ - Message(s) to print
+log_info() {
+  if _should_log info; then
+    printf "${_LOG_COLOR_INFO}[INFO]${_LOG_COLOR_RESET} %s\n" "$@" >&2
+  fi
+}
+
+# Log a warning message (non-fatal issues that may need attention).
+# Shown when LOG_LEVEL is debug, info, or warning.
+# Arguments:
+#   $@ - Message(s) to print
+log_warn() {
+  if _should_log warning; then
+    printf "${_LOG_COLOR_WARN}[WARN]${_LOG_COLOR_RESET} %s\n" "$@" >&2
+  fi
+}
+
+# Log an error message (fatal errors that stop execution).
+# Always shown regardless of LOG_LEVEL.
+# Arguments:
+#   $@ - Message(s) to print
+log_error() {
+  printf "${_LOG_COLOR_ERROR}[ERROR]${_LOG_COLOR_RESET} %s\n" "$@" >&2
+}
+
+# Print message to stderr (legacy function, kept for compatibility).
 # Arguments:
 #   $@ - Message(s) to print
 errcho ()
@@ -77,7 +180,7 @@ errcho ()
 #   $@ - Error message(s) to print
 errxit ()
 {
-  errcho "$@"
+  log_error "$@"
   # shellcheck disable=SC2119
   errcleanup
 }
@@ -166,12 +269,12 @@ trap 'intcleanup' SIGHUP SIGINT SIGTERM
 # Early validation: check for required commands
 #
 if ! command -v git &> /dev/null; then
-  errcho "Error: git is required but not installed."
+  log_error "git is required but not installed."
   exit 1
 fi
 
 if ! command -v jq &> /dev/null; then
-  errcho "Error: jq is required but not installed."
+  log_error "jq is required but not installed."
   exit 1
 fi
 
@@ -185,6 +288,8 @@ for arg in "$@"; do
     '--committer-email') set -- "$@" '-e' ;;
     '--coauthor-action') set -- "$@" '-C' ;;
     '--dry-run')         set -- "$@" '-D' ;;
+    '--log-level')       set -- "$@" '-L' ;;
+    '--skip-preflight')  set -- "$@" '-S' ;;
     *)                   set -- "$@" "$arg" ;;
   esac
 done
@@ -205,6 +310,7 @@ INTERACTIVE_REBASE="${INTERACTIVE_REBASE:-false}"
 CREATE_NEW_REPOSITORY="${CREATE_NEW_REPOSITORY:-false}"
 KEEP_TMP_WORKSPACE="${KEEP_TMP_WORKSPACE:-false}"
 DRY_RUN="${DRY_RUN:-false}"
+SKIP_PREFLIGHT="${SKIP_PREFLIGHT:-false}"
 
 # Don't default these rebase options *yet*
 MERGE_STRATEGY_OPTION_FOR_REBASE="${MERGE_STRATEGY_OPTION_FOR_REBASE:-theirs}"
@@ -345,13 +451,14 @@ function validate_no_dest_overlap () {
   return 0
 }
 
-# Print log message if verbose mode is enabled.
+# Print log message if verbose mode is enabled (legacy function).
+# This function is kept for backwards compatibility with existing code.
+# New code should use log_debug(), log_info(), log_warn(), or log_error().
 # Arguments:
 #   $@ - Message(s) to print
 function log () {
-  if [[ $_verbose -eq 1 ]]; then
-    printf "%s\n" "$@"
-  fi
+  # Legacy log() maps to log_debug() for backwards compatibility
+  log_debug "$@"
 }
 
 # Display usage information and available options.
@@ -411,8 +518,15 @@ function show_help()
   -D, --dry-run                Preview what changes would be made without actually modifying anything.
                                Shows: author/committer changes, coauthor-action effects, and affected commits.
                                Useful for verifying configuration before running. (default: off)
+  -L, --log-level <level>      Set logging verbosity: debug, info, warning, error. (default: info)
+                               Can also be set via GITMUX_LOG_LEVEL environment variable.
+                               debug: Show all output including command details
+                               info: Show key milestones and status (default)
+                               warning: Show only warnings and errors
+                               error: Show only errors
+  -S, --skip-preflight         Skip pre-flight validation checks (advanced use). (default: off)
   -k                           Keep the tmp git workspace around instead of cleaning it up (useful for debugging). (default: off)
-  -v                           Verbose ( default: off )
+  -v                           Verbose output (sets log level to debug). (default: off)
   -h                           Print help / usage
 EOF
 }
@@ -423,7 +537,7 @@ _rebase_option_flags=''
 _used_m_flag=false
 _used_legacy_flags=false
 
-while getopts "h?vr:d:g:t:p:z:b:l:o:X:m:sickDN:E:n:e:C:" OPT; do
+while getopts "h?vr:d:g:t:p:z:b:l:o:X:m:sickDSL:N:E:n:e:C:" OPT; do
   case "$OPT" in
     r)  source_repository=$OPTARG
       ;;
@@ -460,6 +574,10 @@ while getopts "h?vr:d:g:t:p:z:b:l:o:X:m:sickDN:E:n:e:C:" OPT; do
       ;;
     D)  DRY_RUN=true
       ;;
+    S)  SKIP_PREFLIGHT=true
+      ;;
+    L)  LOG_LEVEL=$OPTARG
+      ;;
     N)  GITMUX_AUTHOR_NAME=$OPTARG
       ;;
     E)  GITMUX_AUTHOR_EMAIL=$OPTARG
@@ -471,7 +589,9 @@ while getopts "h?vr:d:g:t:p:z:b:l:o:X:m:sickDN:E:n:e:C:" OPT; do
     C)  GITMUX_COAUTHOR_ACTION=$OPTARG
       ;;
     h)  show_help && exit 0;;
-    v)   _verbose=1;;
+    v)  _verbose=1
+        LOG_LEVEL=debug
+      ;;
     \? ) show_help; errxit "Unknown option: -${OPT} ( ${OPTARG} )";;
     ':') errxit "Missing option argument for -${OPT} ( ${OPTARG} )";;
     *  ) errxit "Unimplemented option: -${OPT} ( ${OPTARG} )";;
@@ -484,6 +604,12 @@ shift $((OPTIND-1))
 #
 # Argument validation.
 #
+
+# Validate log level value
+case "$LOG_LEVEL" in
+  debug|info|warning|error) ;; # Valid values
+  *) errxit "--log-level must be 'debug', 'info', 'warning', or 'error', got: ${LOG_LEVEL}" ;;
+esac
 if [[ -z "$source_repository" ]]; then
   errxit "Source repository url or path (-r) is required"
 elif [[ -z "$destination_repository" ]]; then
@@ -530,7 +656,7 @@ elif [[ -n "$subdirectory_filter" ]] || [[ -n "$destination_path" ]]; then
 else
   # No mappings specified - entire repo to root (fork behavior)
   PATH_MAPPINGS+=(":")
-  errcho "No subdirectory filter or path mappings specified! Entire source repository will be extracted."
+  log_info "No subdirectory filter or path mappings specified! Entire source repository will be extracted."
 fi
 
 if [ ${#GITHUB_TEAMS[@]} -gt 0 ]; then
@@ -608,6 +734,222 @@ fi
 # </Argument validation.>
 #
 
+#
+# Pre-flight checks
+#
+# Validates that all required tools and permissions are available before
+# starting long-running operations. Fails fast with actionable error messages.
+#
+
+# Print a check result with pass/fail indicator.
+# Arguments:
+#   $1 - "pass" or "fail"
+#   $2 - Check description
+_preflight_result() {
+  local status="$1"
+  local desc="$2"
+  if [[ "$status" == "pass" ]]; then
+    echo "  ✓ ${desc}" >&2
+  else
+    echo "  ✗ ${desc}" >&2
+  fi
+}
+
+# Run pre-flight checks to validate environment before starting work.
+# Checks are conditional based on which flags are used.
+# Returns:
+#   0 if all checks pass, 1 if any check fails
+preflight_checks() {
+  local _checks_passed=true
+  local _gh_needed=false
+  local _source_is_url=false
+  local _dest_is_url=false
+
+  # Determine if gh is needed based on flags
+  if [[ "${SUBMIT_PR}" == "true" ]] || [[ "${CREATE_NEW_REPOSITORY}" == "true" ]] || [[ ${#GITHUB_TEAMS[@]} -gt 0 ]]; then
+    _gh_needed=true
+  fi
+
+  # Determine if source/destination are URLs (not local paths)
+  if [[ ! -d "${source_repository}" ]]; then
+    _source_is_url=true
+  fi
+  if [[ ! -d "${destination_repository}" ]]; then
+    _dest_is_url=true
+  fi
+
+  log_info "Running pre-flight checks..."
+
+  # Check 1: git is installed (always required)
+  if command -v git &> /dev/null; then
+    _preflight_result pass "git installed"
+  else
+    _preflight_result fail "git not installed"
+    _checks_passed=false
+  fi
+
+  # Check 2: gh is installed (if needed)
+  if [[ "$_gh_needed" == "true" ]]; then
+    if command -v gh &> /dev/null; then
+      _preflight_result pass "gh installed"
+    else
+      _preflight_result fail "gh not installed (required for -s, -c, or -z flags)"
+      log_error ""
+      log_error "  Install from: https://cli.github.com/"
+      _checks_passed=false
+    fi
+  fi
+
+  # Check 3: gh is authenticated (if gh is needed)
+  if [[ "$_gh_needed" == "true" ]] && command -v gh &> /dev/null; then
+    local _gh_auth_output
+    if _gh_auth_output=$(gh auth status 2>&1); then
+      # Extract username from auth status
+      local _gh_user
+      _gh_user=$(echo "$_gh_auth_output" | grep -oE "Logged in to [^ ]+ account [^ ]+ " | head -1 | awk '{print $NF}' | tr -d '(' | tr -d ')' || echo "unknown")
+      if [[ -z "$_gh_user" ]] || [[ "$_gh_user" == "unknown" ]]; then
+        _gh_user=$(echo "$_gh_auth_output" | grep -oE "account [^ ]+" | head -1 | awk '{print $2}' || echo "authenticated")
+      fi
+      _preflight_result pass "gh authenticated (${_gh_user})"
+    else
+      _preflight_result fail "gh not authenticated"
+      log_error ""
+      log_error "  gh cannot authenticate. This may be because:"
+      log_error "    - You haven't logged in: run 'gh auth login'"
+      if [[ -n "${GH_TOKEN:-}" ]]; then
+        log_error "    - GH_TOKEN is set but may be invalid or expired"
+        log_error "    - Try: unset GH_TOKEN && gh auth status"
+      fi
+      log_error ""
+      _checks_passed=false
+    fi
+  fi
+
+  # Check 4: Source repository is accessible
+  if [[ "$_source_is_url" == "true" ]]; then
+    local _ls_remote_output
+    if _ls_remote_output=$(git ls-remote --exit-code "${source_repository}" HEAD 2>&1); then
+      _preflight_result pass "source repo accessible (${source_repository})"
+    else
+      _preflight_result fail "source repo not accessible"
+      log_error ""
+      log_error "  Cannot access source repository: ${source_repository}"
+      log_error "  Git error: ${_ls_remote_output}"
+      log_error ""
+      _checks_passed=false
+    fi
+  else
+    if [[ -d "${source_repository}/.git" ]] || git -C "${source_repository}" rev-parse --git-dir &> /dev/null; then
+      _preflight_result pass "source repo accessible (local: ${source_repository})"
+    else
+      _preflight_result fail "source path is not a git repository"
+      log_error ""
+      log_error "  Path exists but is not a git repository: ${source_repository}"
+      log_error ""
+      _checks_passed=false
+    fi
+  fi
+
+  # Check 5: Source git ref exists (if -g specified)
+  if [[ -n "${source_git_ref}" ]] && [[ "$_source_is_url" == "true" ]]; then
+    local _ref_output
+    if _ref_output=$(git ls-remote --exit-code "${source_repository}" "${source_git_ref}" 2>&1); then
+      _preflight_result pass "source git ref exists (${source_git_ref})"
+    else
+      # Try as a commit hash (ls-remote doesn't find commits directly)
+      _preflight_result pass "source git ref specified (${source_git_ref}) - will verify during clone"
+    fi
+  fi
+
+  # Check 6: Destination repo accessible and has write access (if gh needed and dest is URL)
+  if [[ "$_gh_needed" == "true" ]] && [[ "$_dest_is_url" == "true" ]] && command -v gh &> /dev/null; then
+    # Parse destination URI for gh api call
+    local _dest_api_path="${destination_owner}/${destination_project}"
+    local _dest_perms_output
+    local _can_push=false
+
+    if _dest_perms_output=$(gh api "repos/${_dest_api_path}" --jq '.permissions' 2>&1); then
+      # Check if we have push permission
+      if echo "$_dest_perms_output" | grep -q '"push":true'; then
+        _can_push=true
+        _preflight_result pass "destination repo accessible with push access (${_dest_api_path})"
+      else
+        _preflight_result fail "destination repo accessible but no push access"
+        log_error ""
+        log_error "  You can access ${_dest_api_path} but don't have push permissions."
+        log_error "  Permissions: ${_dest_perms_output}"
+        log_error ""
+        _checks_passed=false
+      fi
+    else
+      # Repo not accessible - might not exist
+      if [[ "${CREATE_NEW_REPOSITORY}" == "true" ]]; then
+        _preflight_result pass "destination repo will be created (${_dest_api_path})"
+      else
+        _preflight_result fail "destination repo not accessible (${_dest_api_path})"
+        log_error ""
+        log_error "  gh cannot access this repository. This may be because:"
+        log_error "    - The repository doesn't exist (use -c to create it)"
+        log_error "    - You don't have permission to access it"
+        if [[ -n "${GH_TOKEN:-}" ]]; then
+          log_error "    - GH_TOKEN is set to a token without access (current: GH_TOKEN is set)"
+          log_error "    - Try: unset GH_TOKEN && gh auth status"
+        fi
+        log_error ""
+        _checks_passed=false
+      fi
+    fi
+
+    # Check 7: Destination branch exists (unless creating new repo)
+    if [[ "${CREATE_NEW_REPOSITORY}" != "true" ]] && [[ "$_can_push" == "true" ]]; then
+      local _branch_output
+      if _branch_output=$(gh api "repos/${_dest_api_path}/branches/${destination_branch}" --jq '.name' 2>&1); then
+        _preflight_result pass "destination branch exists (${destination_branch})"
+      else
+        _preflight_result fail "destination branch not found (${destination_branch})"
+        log_error ""
+        log_error "  Branch '${destination_branch}' does not exist in ${_dest_api_path}"
+        log_error "  Use -b to specify a different branch, or check the repository's default branch."
+        log_error ""
+        _checks_passed=false
+      fi
+    fi
+  fi
+
+  # Check 8: Teams exist (if -z used)
+  if [[ ${#GITHUB_TEAMS[@]} -gt 0 ]] && command -v gh &> /dev/null; then
+    for orgteam in "${GITHUB_TEAMS[@]}"; do
+      local _org="${orgteam%%/*}"
+      local _team="${orgteam#*/}"
+      if gh api "orgs/${_org}/teams/${_team}" --jq '.id' &> /dev/null; then
+        _preflight_result pass "team exists (${orgteam})"
+      else
+        _preflight_result fail "team not found (${orgteam})"
+        log_error ""
+        log_error "  Team '${_team}' not found in organization '${_org}'"
+        log_error "  Verify the team name and your permissions."
+        log_error ""
+        _checks_passed=false
+      fi
+    done
+  fi
+
+  if [[ "$_checks_passed" == "true" ]]; then
+    log_info "All pre-flight checks passed."
+    return 0
+  else
+    log_error ""
+    log_error "Pre-flight checks failed. Aborting."
+    return 1
+  fi
+}
+
+# Run pre-flight checks unless skipped
+if [[ "${SKIP_PREFLIGHT}" != "true" ]] && [[ "${DRY_RUN}" != "true" ]]; then
+  if ! preflight_checks; then
+    exit 1
+  fi
+fi
 
 # Export this for `gh`.
 export GH_HOST=${GH_HOST}
@@ -782,7 +1124,7 @@ process_single_mapping() {
   local _mapping_idx="$3"
   local _mapping_total="$4"
 
-  log "Processing mapping $((_mapping_idx + 1))/${_mapping_total}: '${_source_path:-<root>}' -> '${_dest_path:-<root>}'"
+  log_info "Processing mapping $((_mapping_idx + 1))/${_mapping_total}: '${_source_path:-<root>}' -> '${_dest_path:-<root>}'"
 
   # File reorganization: if destination path is specified, restructure files
   if [[ -n "$_dest_path" ]] && ! [[ "${_dest_path}" == '/' ]]; then
@@ -831,7 +1173,7 @@ process_single_mapping() {
       fi
       log "Cleaning up tempdir."
       if [[ -d __tmp__ ]] && ! rm -rf __tmp__; then
-        errcho "Warning: Failed to clean up temp directory __tmp__"
+        log_warn "Failed to clean up temp directory __tmp__"
       fi
       if ! git add --update "${_source_path:-.}"; then
         errcho "Failed to stage updated files in '${_source_path:-.}'"
@@ -887,12 +1229,12 @@ process_single_mapping() {
       fi
       log "Cleaning up ${_rname}"
       if ! _mv_output=$(git rm -f "${_dest_path}/${_rname}" 2>&1); then
-        errcho "Warning: Failed to clean up temporary file '${_dest_path}/${_rname}'"
+        log_warn "Failed to clean up temporary file '${_dest_path}/${_rname}'"
         errcho "Git error: ${_mv_output}"
       fi
       log "Cleaning up tempdir."
       if [[ -d __tmp__ ]] && ! rm -rf __tmp__; then
-        errcho "Warning: Failed to clean up temp directory __tmp__"
+        log_warn "Failed to clean up temp directory __tmp__"
       fi
     fi
   fi
@@ -1080,7 +1422,7 @@ fi
 INTEGRATION_BRANCH="__gitmux_integration__"
 MAPPING_COUNT=${#PATH_MAPPINGS[@]}
 
-log "Processing ${MAPPING_COUNT} path mapping(s)..."
+log_info "Processing ${MAPPING_COUNT} path mapping(s)..."
 
 for ((mapping_idx = 0; mapping_idx < MAPPING_COUNT; mapping_idx++)); do
   # Parse the current mapping
@@ -1101,7 +1443,7 @@ for ((mapping_idx = 0; mapping_idx < MAPPING_COUNT; mapping_idx++)); do
     if ! git checkout -b "${INTEGRATION_BRANCH}"; then
       errxit "Failed to create integration branch '${INTEGRATION_BRANCH}'"
     fi
-    log "Created integration branch: ${INTEGRATION_BRANCH}"
+    log_info "Created integration branch: ${INTEGRATION_BRANCH}"
   else
     # Subsequent mappings: reset to original, process on temp branch, merge
     log "Processing mapping $(( mapping_idx + 1 )) on temporary branch..."
@@ -1123,7 +1465,7 @@ for ((mapping_idx = 0; mapping_idx < MAPPING_COUNT; mapping_idx++)); do
       if [[ -n "$refs_to_delete" ]]; then
         while IFS= read -r ref; do
           if [[ -n "$ref" ]] && ! git update-ref -d "$ref" 2>&1; then
-            errcho "Warning: Failed to delete backup ref: $ref"
+            log_warn "Failed to delete backup ref: $ref"
           fi
         done <<< "$refs_to_delete"
       fi
@@ -1147,39 +1489,39 @@ for ((mapping_idx = 0; mapping_idx < MAPPING_COUNT; mapping_idx++)); do
       # This is appropriate because each mapping targets different destination paths,
       # so conflicts indicate the temp branch has the desired new content.
       # Note: This may overwrite integration branch changes to conflicting files.
-      errcho "Merge conflict detected for mapping $(( mapping_idx + 1 )). Resolving with --theirs strategy..."
+      log_info "Merge conflict detected for mapping $(( mapping_idx + 1 )). Resolving with --theirs strategy..."
       if ! _merge_output=$(git checkout --theirs . 2>&1); then
-        errcho "Failed to checkout --theirs. Complex conflict requires manual resolution."
-        errcho "Git error: ${_merge_output}"
-        errcho "Workspace: ${_WORKSPACE}"
+        log_error "Failed to checkout --theirs. Complex conflict requires manual resolution."
+        log_error "Git error: ${_merge_output}"
+        log_error "Workspace: ${_WORKSPACE}"
         errxit "Merge resolution failed"
       fi
       # Use 'git add .' to stage all changes including new files from --theirs
       # (git add --update would miss new files, causing incomplete merges)
       if ! _merge_output=$(git add . 2>&1); then
-        errcho "Failed to stage resolved files."
-        errcho "Git error: ${_merge_output}"
+        log_error "Failed to stage resolved files."
+        log_error "Git error: ${_merge_output}"
         errxit "Merge resolution failed"
       fi
       if ! _merge_output=$(git commit -m "Merge mapping $(( mapping_idx + 1 )): ${current_source:-<root>} -> ${current_dest:-<root>}" 2>&1); then
-        errcho "Failed to commit merge resolution."
-        errcho "Git error: ${_merge_output}"
+        log_error "Failed to commit merge resolution."
+        log_error "Git error: ${_merge_output}"
         errxit "Merge resolution failed"
       fi
-      errcho "Merge conflict resolved using --theirs strategy."
+      log_info "Merge conflict resolved using --theirs strategy."
     fi
 
     # Clean up temp branch
     _cleanup_output=""
     if ! _cleanup_output=$(git branch -D "${TEMP_BRANCH}" 2>&1); then
-      errcho "Warning: Failed to delete temporary branch '${TEMP_BRANCH}'"
+      log_warn "Failed to delete temporary branch '${TEMP_BRANCH}'"
       errcho "Git error: ${_cleanup_output}"
     fi
     log "Merged and cleaned up temporary branch."
   fi
 done
 
-log "All ${MAPPING_COUNT} mapping(s) processed successfully."
+log_info "All ${MAPPING_COUNT} mapping(s) processed successfully."
 log "$(git status)"
 log "Adding 'destination' remote --> ${destination_repository}"
 git remote add destination "${destination_repository}"
@@ -1195,7 +1537,7 @@ if ! git branch -m "${INTEGRATION_BRANCH}" "${DESTINATION_PR_BRANCH_NAME}"; then
   errcho "A branch with this name may already exist from a previous run."
   errxit "Branch rename failed"
 fi
-log "Renamed integration branch to: ${DESTINATION_PR_BRANCH_NAME}"
+log_info "Renamed integration branch to: ${DESTINATION_PR_BRANCH_NAME}"
 log "Status after processing mappings:"
 log "$(git status)"
 # Must exist in order to set-upstream-to.
@@ -1292,7 +1634,7 @@ perform_rebase () {
   if [[ $(echo " ${REBASE_OPTIONS} " | sed -E 's/.*(\ -i\ |\ --interactive\ ).*/INTERACTIVE/') == "INTERACTIVE" ]]; then
     echo "Interactive rebase detected."
     git rebase "${REBASE_OPTIONS}" "destination/${destination_branch}"
-    log "Rebase completed successfully."
+    log_info "Rebase completed successfully."
     echo "After rebasing, this might be useful: \`git push destination ${DESTINATION_PR_BRANCH_NAME}\`"
     echo "Navigate to the temp workspace at ${_WORKSPACE} to complete the workflow."
     echo "cd ${_WORKSPACE}"
@@ -1336,13 +1678,13 @@ perform_rebase () {
       return 1
     fi
 
-    log "Pushing to branch ${DESTINATION_PR_BRANCH_NAME}"
+    log_info "Pushing to branch ${DESTINATION_PR_BRANCH_NAME}"
     git push --force-with-lease --tags destination
     git push --follow-tags --progress --atomic --verbose --force-with-lease destination "${DESTINATION_PR_BRANCH_NAME}"
   else
     # rebase in elif condition succeeded
-    log "Rebase completed successfully."
-    log "Pushing to branch ${DESTINATION_PR_BRANCH_NAME}"
+    log_info "Rebase completed successfully."
+    log_info "Pushing to branch ${DESTINATION_PR_BRANCH_NAME}"
     git push --force-with-lease --tags destination
     git push --follow-tags --progress --atomic --verbose --force-with-lease destination "${DESTINATION_PR_BRANCH_NAME}"
   fi
