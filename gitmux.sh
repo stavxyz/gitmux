@@ -1059,9 +1059,11 @@ if [[ -z "${REBASE_OPTIONS}" ]]; then
           errxit "Merge strategy option (-X) is required. Value choices: ours, theirs, patience, diff-algorithm=[patience|minimal|histogram|myers]"
   fi
   REBASE_OPTIONS="--keep-empty --autostash --merge --strategy recursive --strategy-option ${MERGE_STRATEGY_OPTION_FOR_REBASE}"
-  # Use histogram diff algorithm by default - produces better diffs for code
-  # Skip if user explicitly specified a diff-algorithm via -X
-  if [[ ! "${MERGE_STRATEGY_OPTION_FOR_REBASE}" =~ ^diff-algorithm= ]]; then
+  # Use histogram diff algorithm by default - extends patience algorithm to
+  # better handle low-occurrence common elements in code
+  # Skip if user explicitly chose a diff algorithm via -X (patience or diff-algorithm=*)
+  if [[ "${MERGE_STRATEGY_OPTION_FOR_REBASE}" != "patience" ]] && \
+     [[ ! "${MERGE_STRATEGY_OPTION_FOR_REBASE}" =~ ^diff-algorithm= ]]; then
     REBASE_OPTIONS="${REBASE_OPTIONS} --strategy-option diff-algorithm=histogram"
   fi
   _append_to_pr_branch_name="${MERGE_STRATEGY_OPTION_FOR_REBASE}"

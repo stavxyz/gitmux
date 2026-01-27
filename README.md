@@ -334,24 +334,22 @@ The diff algorithm determines how git figures out what changed between two versi
 
 | Algorithm | Description | Best for |
 |-----------|-------------|----------|
-| `histogram` | gitmux default. Enhanced patience with better performance | Code (recommended for most projects) |
-| `patience` | Matches unique lines first, then fills in | Code with clear structure (functions, classes) |
-| `minimal` | Tries harder to minimize diff size | When you want the smallest possible diff |
-| `myers` | Git's default. Fast, minimal edit distance | General purpose, simple diffs |
+| `histogram` | gitmux default. Extends patience to support low-occurrence common elements | Code with repeated patterns or blocks |
+| `patience` | Matches unique lines first, then fills in gaps | Code with clear structure; can be slow on large files |
+| `minimal` | Spends extra time to produce the smallest diff | When you need the most compact diff |
+| `myers` | Git's default. Basic greedy diff algorithm | General purpose, fast |
 
 ```bash
 # gitmux uses histogram by default, but you can override:
 ./gitmux.sh -r source -t dest -X diff-algorithm=myers
-
-# Use minimal algorithm
-./gitmux.sh -r source -t dest -X diff-algorithm=minimal
+./gitmux.sh -r source -t dest -X patience  # shorthand for patience algorithm
 ```
 
 **When to use what:**
-- **`histogram`** (gitmux default) is the best choice for code—produces cleaner diffs for refactored or moved code
-- **`patience`** (shorthand `-X patience`) is good when histogram produces weird results
-- **`minimal`** when you want the mathematically smallest diff
-- **`myers`** (Git's default) is fast and works well for simple diffs
+- **`histogram`** (gitmux default) — good for code; shows structural changes more clearly
+- **`patience`** (shorthand `-X patience`) — good for highly structured code, but may be slow on large files
+- **`minimal`** — when you want the mathematically smallest diff, regardless of speed
+- **`myers`** (Git's default) — fast and predictable; good baseline if other algorithms produce unexpected results
 
 ### Custom Options with `-o`
 
