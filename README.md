@@ -19,6 +19,8 @@ gitmux extracts files or directories from a source repository into a destination
 - **Author Rewriting** - Override commit author/committer across entire history
 - **AI Attribution Cleanup** - Remove Claude/Anthropic co-author trailers while preserving human contributors
 - **Dry-Run Mode** - Preview all changes before modifying anything
+- **Pre-flight Checks** - Validates permissions and access before long-running operations
+- **Configurable Logging** - Debug, info, warning, or error log levels
 
 ## Installation
 
@@ -184,9 +186,12 @@ Author/Committer Override:
                           - keep: Preserve all trailers (default otherwise)
   -D, --dry-run           Preview changes without modifying anything
 
-Other:
+Logging & Diagnostics:
+  -L, --log-level     Log verbosity: debug, info, warning, error (default: info)
+  -S, --skip-preflight  Skip pre-flight validation checks (advanced use)
+  -D, --dry-run       Preview changes without modifying anything
   -k                  Keep temp workspace (for debugging)
-  -v                  Verbose output
+  -v                  Verbose output (sets log level to debug)
   -h                  Show help
 ```
 
@@ -201,6 +206,43 @@ All author/committer options can also be set via environment variables:
 | `--committer-name` | `GITMUX_COMMITTER_NAME` |
 | `--committer-email` | `GITMUX_COMMITTER_EMAIL` |
 | `--coauthor-action` | `GITMUX_COAUTHOR_ACTION` |
+| `--log-level` | `GITMUX_LOG_LEVEL` |
+
+## Pre-flight Checks
+
+Before starting any long-running operations (cloning, filter-branch, rebase), gitmux validates that everything is in place:
+
+```
+[INFO] Running pre-flight checks...
+  ✓ git installed
+  ✓ gh installed
+  ✓ gh authenticated (yourname)
+  ✓ source repo accessible (org/source-repo)
+  ✓ destination repo accessible with push access (org/dest-repo)
+  ✓ destination branch exists (main)
+[INFO] All pre-flight checks passed.
+```
+
+If any check fails, gitmux provides actionable error messages:
+
+```
+[INFO] Running pre-flight checks...
+  ✓ git installed
+  ✓ gh installed
+  ✓ gh authenticated (yourname)
+  ✓ source repo accessible (org/source-repo)
+  ✗ destination repo not accessible (org/dest-repo)
+
+[ERROR]   gh cannot access this repository. This may be because:
+[ERROR]     - The repository doesn't exist (use -c to create it)
+[ERROR]     - You don't have permission to access it
+[ERROR]     - GH_TOKEN is set to a token without access (current: GH_TOKEN is set)
+[ERROR]     - Try: unset GH_TOKEN && gh auth status
+
+[ERROR] Pre-flight checks failed. Aborting.
+```
+
+Use `--skip-preflight` to bypass these checks (advanced use only).
 
 ## How It Works
 
@@ -380,6 +422,14 @@ A: Use `--dry-run` (or `-D`). This shows you the source/destination, which commi
 **Q: What's the difference between author and committer?**
 
 A: In git, the **author** is who wrote the code, and the **committer** is who applied the commit. They're often the same person, but differ in scenarios like cherry-picking or rebasing. Use `--author-*` to change who wrote the code; use `--committer-*` to change who committed it.
+
+**Q: How do I see more detailed output?**
+
+A: Use `-v` for verbose output (debug level), or set `--log-level debug` for maximum detail. Log levels from most to least verbose: `debug`, `info` (default), `warning`, `error`. You can also set `GITMUX_LOG_LEVEL=debug` in your environment.
+
+**Q: Why did gitmux fail before doing any work?**
+
+A: gitmux runs pre-flight checks to validate permissions and access before starting long-running operations. This prevents wasted time from failures late in the process. Check the error message for what's missing (e.g., repository access, branch existence). Use `--skip-preflight` to bypass these checks if you know what you're doing.
 
 ## Contributing
 
