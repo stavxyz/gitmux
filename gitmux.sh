@@ -544,6 +544,12 @@ _rebase_option_flags=''
 _used_m_flag=false
 _used_legacy_flags=false
 
+# Show help if no arguments provided
+if [[ $# -eq 0 ]]; then
+  show_help
+  exit 0
+fi
+
 while getopts "h?vr:d:g:t:p:z:b:l:o:X:m:sickDSL:N:E:n:e:C:" OPT; do
   case "$OPT" in
     r)  source_repository=$OPTARG
