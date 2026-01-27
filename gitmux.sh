@@ -71,7 +71,7 @@ shopt -s extglob
 #   debug   - Detailed diagnostic information (command outputs, internal state)
 #   info    - Key milestones and status updates (default)
 #   warning - Non-fatal issues that may need attention
-#   error   - Fatal errors that stop execution
+#   error   - Problems requiring user attention (always shown)
 #
 # Configuration precedence (highest to lowest):
 #   1. CLI flag: --log-level / -L
@@ -1713,11 +1713,15 @@ if ! _repo_existence="$(git fetch destination 2>&1)"; then
       errxit "Failed to pull from destination trunk"
     fi
     # Unstage everything (from ${DESTINATION_PR_BRANCH_NAME})
-    git rm -r --cached .
+    if ! _rm_output=$(git rm -r --cached . 2>&1); then
+      log_warn "Could not clear staging area: ${_rm_output}"
+      # Non-fatal - continue with empty commit
+    fi
     git status
     log "Creating empty commit for its own sake"
-    git commit --message 'Hello: this repository was created by gitmux.' --allow-empty
-    pwd
+    if ! git commit --message 'Hello: this repository was created by gitmux.' --allow-empty; then
+      log_warn "Failed to create initial commit - continuing anyway"
+    fi
     if ! git push destination "gitmux-dest-${destination_branch}:trunk"; then
       errxit "Failed to push initial commit to destination repository"
     fi
@@ -1816,14 +1820,30 @@ perform_rebase () {
 
     log_info "✅ Rebase completed successfully after retry!"
     log_info "🚀 Pushing to branch ${DESTINATION_PR_BRANCH_NAME}..."
-    git push --force-with-lease --tags destination
-    git push --follow-tags --progress --atomic --verbose --force-with-lease destination "${DESTINATION_PR_BRANCH_NAME}"
+    if ! _push_output=$(git push --force-with-lease --tags destination 2>&1); then
+      log_error "Failed to push tags to destination"
+      log_debug "Git error: ${_push_output}"
+      return 1
+    fi
+    if ! _push_output=$(git push --follow-tags --progress --atomic --verbose --force-with-lease destination "${DESTINATION_PR_BRANCH_NAME}" 2>&1); then
+      log_error "Failed to push branch '${DESTINATION_PR_BRANCH_NAME}' to destination"
+      log_debug "Git error: ${_push_output}"
+      return 1
+    fi
   else
     # rebase in elif condition succeeded
     log_info "✅ Rebase completed successfully!"
     log_info "🚀 Pushing to branch ${DESTINATION_PR_BRANCH_NAME}..."
-    git push --force-with-lease --tags destination
-    git push --follow-tags --progress --atomic --verbose --force-with-lease destination "${DESTINATION_PR_BRANCH_NAME}"
+    if ! _push_output=$(git push --force-with-lease --tags destination 2>&1); then
+      log_error "Failed to push tags to destination"
+      log_debug "Git error: ${_push_output}"
+      return 1
+    fi
+    if ! _push_output=$(git push --follow-tags --progress --atomic --verbose --force-with-lease destination "${DESTINATION_PR_BRANCH_NAME}" 2>&1); then
+      log_error "Failed to push branch '${DESTINATION_PR_BRANCH_NAME}' to destination"
+      log_debug "Git error: ${_push_output}"
+      return 1
+    fi
   fi
 }
 
@@ -1922,13 +1942,19 @@ PR_DESCRIPTION=$(printf "%s\n" \
 
 if _cmd_exists gh && [ "${SUBMIT_PR}" = true ]; then
   log_info "📤 Submitting pull request..."
-  gh pr --repo "${destination_domain}/${destination_owner}/${destination_project}" \
+  if ! _pr_output=$(gh pr --repo "${destination_domain}/${destination_owner}/${destination_project}" \
     create \
     --title "${PR_TITLE}" \
     --body "${PR_DESCRIPTION}" \
     --assignee @me \
     --base "${destination_branch}" \
-    --head "${destination_owner}:${DESTINATION_PR_BRANCH_NAME}"
+    --head "${destination_owner}:${DESTINATION_PR_BRANCH_NAME}" 2>&1); then
+    log_error "Failed to create pull request"
+    log_error "gh error: ${_pr_output}"
+    log_info "📋 You can manually create the PR for branch ${DESTINATION_PR_BRANCH_NAME}"
+    errxit "PR creation failed"
+  fi
+  log_info "✅ Pull request created successfully!"
 else
   log_info "📋 Please manually submit PR for branch ${DESTINATION_PR_BRANCH_NAME} to ${destination_repository}"
   log_info "Auto-generated pull request description:"
