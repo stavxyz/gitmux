@@ -1423,6 +1423,38 @@ HELPER_HEADER
     [[ "$status" -eq 1 ]]
 }
 
+# ============================================================================
+# _check_python_version tests
+# ============================================================================
+
+@test "_check_python_version: returns 0 when Python 3.6+ installed" {
+    # Assumes test environment has Python 3.6+
+    if ! command -v python3 &>/dev/null; then
+        skip "python3 not installed"
+    fi
+    run _check_python_version
+    [[ "$status" -eq 0 ]]
+}
+
+@test "_check_python_version: returns 2 when python3 not in PATH" {
+    # Use a PATH without python3
+    PATH="/nonexistent" run _check_python_version
+    [[ "$status" -eq 2 ]]
+}
+
+@test "_check_python_version: returns 1 when Python version check fails" {
+    # Create a mock python3 that returns exit code 1 (simulates Python < 3.6)
+    mkdir -p "${BATS_TEST_TMPDIR}/bin"
+    cat > "${BATS_TEST_TMPDIR}/bin/python3" << 'EOF'
+#!/bin/bash
+exit 1
+EOF
+    chmod +x "${BATS_TEST_TMPDIR}/bin/python3"
+
+    PATH="${BATS_TEST_TMPDIR}/bin" run _check_python_version
+    [[ "$status" -eq 1 ]]
+}
+
 @test "help: shows --filter-backend option" {
     run "${GITMUX_SCRIPT}" -h
     [[ "$output" =~ "--filter-backend" ]]
@@ -1651,7 +1683,8 @@ Generated with [Claude Code](https://claude.ai/code)"
     git checkout "$branch_name" 2>/dev/null || git checkout -b test-branch "$branch_name"
 
     # File should be at lib/file.txt (renamed from src/file.txt)
-    [[ -f "lib/file.txt" ]] || [[ -f "src/lib/file.txt" ]]
+    # With filter-repo's --path-rename, src/ -> lib/ directly
+    [[ -f "lib/file.txt" ]]
 
     teardown_local_repos
 }

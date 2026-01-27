@@ -31,6 +31,7 @@ gitmux extracts files or directories from a source repository into a destination
 - Git
 - [GitHub CLI (`gh`)](https://cli.github.com/) - for `-s`, `-c`, `-z` flags
 - jq
+- Python 3.6+ (required for git-filter-repo)
 - [git-filter-repo](https://github.com/newren/git-filter-repo) (optional, recommended for ~10x speedup)
 
 ### Quick Install
