@@ -255,6 +255,30 @@ check_filter_repo_available() {
   command -v git-filter-repo &> /dev/null
 }
 
+# Determine which filter backend to use.
+# Uses GITMUX_FILTER_BACKEND setting, with auto-detection for "auto" mode.
+# Globals:
+#   GITMUX_FILTER_BACKEND - "auto", "filter-repo", or "filter-branch"
+# Returns:
+#   Echoes "filter-repo" or "filter-branch" to stdout
+get_filter_backend() {
+  case "${GITMUX_FILTER_BACKEND}" in
+    filter-repo)
+      echo "filter-repo"
+      ;;
+    filter-branch)
+      echo "filter-branch"
+      ;;
+    auto|*)
+      if check_filter_repo_available; then
+        echo "filter-repo"
+      else
+        echo "filter-branch"
+      fi
+      ;;
+  esac
+}
+
 # Clean up temporary workspace.
 # Removes the temp directory unless KEEP_TMP_WORKSPACE is true.
 cleanup() {

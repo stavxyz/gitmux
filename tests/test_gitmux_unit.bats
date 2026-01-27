@@ -38,6 +38,8 @@ HELPER_HEADER
         grep "^REPO_REGEX=" "${GITMUX_SCRIPT}"
         # check_filter_repo_available function
         sed -n '/^check_filter_repo_available() {/,/^}/p' "${GITMUX_SCRIPT}"
+        # get_filter_backend function
+        sed -n '/^get_filter_backend() {/,/^}/p' "${GITMUX_SCRIPT}"
     } >> "${TEST_HELPER}"
 
     # Add URL parsing helper functions that use the extracted REPO_REGEX
@@ -1450,4 +1452,29 @@ HELPER_HEADER
     # This should fail later (domain mismatch), but not on filter-backend validation
     GITMUX_FILTER_BACKEND=filter-branch run "${GITMUX_SCRIPT}" -r x -t y --dry-run 2>&1
     [[ ! "$output" =~ "must be 'auto', 'filter-repo', or 'filter-branch'" ]]
+}
+
+@test "get_filter_backend: returns filter-repo when auto and available" {
+    # Mock git-filter-repo as available
+    mkdir -p "${BATS_TEST_TMPDIR}/bin"
+    echo '#!/bin/bash' > "${BATS_TEST_TMPDIR}/bin/git-filter-repo"
+    chmod +x "${BATS_TEST_TMPDIR}/bin/git-filter-repo"
+
+    GITMUX_FILTER_BACKEND=auto PATH="${BATS_TEST_TMPDIR}/bin:${PATH}" run get_filter_backend
+    [[ "$output" == "filter-repo" ]]
+}
+
+@test "get_filter_backend: returns filter-branch when auto and not available" {
+    GITMUX_FILTER_BACKEND=auto PATH="/nonexistent" run get_filter_backend
+    [[ "$output" == "filter-branch" ]]
+}
+
+@test "get_filter_backend: returns filter-repo when explicitly set" {
+    GITMUX_FILTER_BACKEND=filter-repo run get_filter_backend
+    [[ "$output" == "filter-repo" ]]
+}
+
+@test "get_filter_backend: returns filter-branch when explicitly set" {
+    GITMUX_FILTER_BACKEND=filter-branch run get_filter_backend
+    [[ "$output" == "filter-branch" ]]
 }
