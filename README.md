@@ -214,10 +214,10 @@ Before starting any long-running operations (cloning, filter-branch, rebase), gi
 ```
 [INFO] 🔍 Running pre-flight checks...
   ✅ git installed
-  ✅ gh installed
+  ✅ gh CLI installed
   ✅ gh authenticated (yourname)
-  ✅ source repo accessible (org/source-repo)
-  ✅ destination repo accessible with push access (org/dest-repo)
+  ✅ source repo accessible
+  ✅ destination repo accessible with push access
   ✅ destination branch exists (main)
 [INFO] ✅ All pre-flight checks passed!
 ```
@@ -227,10 +227,10 @@ If any check fails, gitmux provides actionable error messages:
 ```
 [INFO] 🔍 Running pre-flight checks...
   ✅ git installed
-  ✅ gh installed
+  ✅ gh CLI installed
   ✅ gh authenticated (yourname)
-  ✅ source repo accessible (org/source-repo)
-  ❌ destination repo not accessible (org/dest-repo)
+  ✅ source repo accessible
+  ❌ destination repo not accessible
 
 [ERROR]   📂 gh cannot access this repository. This may be because:
 [ERROR]     - The repository doesn't exist (use -c to create it)
