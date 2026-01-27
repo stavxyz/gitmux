@@ -104,14 +104,19 @@ fi
 # Arguments:
 #   $1 - Log level name (debug, info, warning, error)
 # Returns:
-#   Numeric value (0-3) to stdout, 1 for unknown level
+#   Numeric value to stdout: 0=debug, 1=info, 2=warning, 3=error.
+#   Unknown levels default to 1 (info) with a warning to stderr.
 _log_level_to_num() {
   case "$1" in
     debug)   echo 0 ;;
     info)    echo 1 ;;
     warning) echo 2 ;;
     error)   echo 3 ;;
-    *)       echo 1 ;;  # default to info for unknown
+    *)
+      # Warn about unknown level (can't use log_warn - would cause recursion)
+      printf "[WARN] Unknown log level '%s', defaulting to 'info'\n" "$1" >&2
+      echo 1
+      ;;
   esac
 }
 
@@ -159,8 +164,9 @@ log_warn() {
   fi
 }
 
-# Log an error message (fatal errors that stop execution).
+# Log an error message.
 # Always shown regardless of LOG_LEVEL.
+# Note: This does NOT exit the script. Use errxit() for fatal errors.
 # Arguments:
 #   $@ - Message(s) to print
 log_error() {
@@ -230,7 +236,6 @@ cleanup() {
   if [[ -d ${gitmux_TMP_WORKSPACE:-} ]]; then
     # shellcheck disable=SC2086
     if [ ${KEEP_TMP_WORKSPACE:-false} = true ]; then
-      # implement -k (keep) and check for it
       log_info "📁 Workspace preserved at: ${gitmux_TMP_WORKSPACE}"
       log_info "   You may navigate there to complete the workflow manually."
     else
@@ -451,9 +456,10 @@ function validate_no_dest_overlap () {
   return 0
 }
 
-# Print log message if verbose mode is enabled (legacy function).
-# This function is kept for backwards compatibility with existing code.
+# DEPRECATED: Print log message if verbose mode is enabled.
+# This legacy function is kept for backwards compatibility only.
 # New code should use log_debug(), log_info(), log_warn(), or log_error().
+# This function may be removed in a future version.
 # Arguments:
 #   $@ - Message(s) to print
 function log () {
@@ -746,12 +752,13 @@ fi
 #   $1 - "pass", "fail", or "warn"
 #   $2 - Check description
 _preflight_result() {
-  local status="$1"
+  local check_status="$1"
   local desc="$2"
-  case "$status" in
+  case "$check_status" in
     pass) echo "  ✅ ${desc}" >&2 ;;
     fail) echo "  ❌ ${desc}" >&2 ;;
     warn) echo "  ⚠️  ${desc}" >&2 ;;
+    *)    echo "  ❓ ${desc} (unknown status: ${check_status})" >&2 ;;
   esac
 }
 
@@ -761,6 +768,7 @@ _preflight_result() {
 #   source_repository, destination_repository, source_git_ref
 #   destination_owner, destination_project, destination_branch
 #   SUBMIT_PR, CREATE_NEW_REPOSITORY, GITHUB_TEAMS
+#   SKIP_PREFLIGHT, DRY_RUN
 # Returns:
 #   0 if all checks pass, 1 if any check fails
 preflight_checks() {
@@ -1238,7 +1246,7 @@ process_single_mapping() {
       local _mv_output
       if ! _mv_output=$(git mv "${_src_files[@]}" __tmp__ 2>&1); then
         log_error "Failed to move files from '${_source_path}' to temp directory"
-        log_debug "Git error: ${_mv_output}"
+        log_error "Git error: ${_mv_output}"
         return 1
       fi
       log "Creating destination path ${_source_path}/${_dest_path}."
@@ -1252,7 +1260,7 @@ process_single_mapping() {
       shopt -u nullglob
       if ! _mv_output=$(git mv "${_tmp_files[@]}" "${_source_path}/${_dest_path}/" 2>&1); then
         log_error "Failed to move files from temp directory to '${_source_path}/${_dest_path}/'"
-        log_debug "Git error: ${_mv_output}"
+        log_error "Git error: ${_mv_output}"
         return 1
       fi
       log "Cleaning up tempdir."
@@ -1282,7 +1290,7 @@ process_single_mapping() {
           if ! _mv_output=$(git mv "$_item" __tmp__/ 2>&1); then
             shopt -u nullglob
             log_error "Failed to move '$_item' to temp directory"
-            log_debug "Git error: ${_mv_output}"
+            log_error "Git error: ${_mv_output}"
             return 1
           fi
           _moved_count=$((_moved_count + 1))
@@ -1303,7 +1311,7 @@ process_single_mapping() {
       shopt -u nullglob
       if ! _mv_output=$(git mv "${_tmp_files[@]}" "${_dest_path}/" 2>&1); then
         log_error "Failed to move files from temp directory to '${_dest_path}/'"
-        log_debug "Git error: ${_mv_output}"
+        log_error "Git error: ${_mv_output}"
         return 1
       fi
       # Trying to ensure we get all the commit history...
@@ -1766,6 +1774,7 @@ perform_rebase () {
       return 1
     fi
 
+    log_info "✅ Rebase completed successfully after retry!"
     log_info "🚀 Pushing to branch ${DESTINATION_PR_BRANCH_NAME}..."
     git push --force-with-lease --tags destination
     git push --follow-tags --progress --atomic --verbose --force-with-lease destination "${DESTINATION_PR_BRANCH_NAME}"
