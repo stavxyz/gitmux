@@ -1522,10 +1522,12 @@ filter_run_filter_repo() {
       return 1
     fi
     local _files_only
-    _files_only=$(echo "${rev_list_files}" | sed 's/.*-- //') || {
+    # Use bash parameter expansion instead of sed (shellcheck SC2001)
+    _files_only="${rev_list_files##*-- }"
+    if [[ -z "$_files_only" ]]; then
       log_error "Failed to parse rev_list_files: ${rev_list_files}"
       return 1
-    }
+    fi
     # Note: word splitting is intentional here to handle multiple paths
     for _file in ${_files_only}; do
       _filter_repo_args+=("--path" "${_file}")
