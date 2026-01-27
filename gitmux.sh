@@ -487,7 +487,7 @@ function log () {
 # Display usage information and available options.
 function show_help()
 {
-  # Helper functions for formatted output
+  # Helper functions for formatted output (scoped to show_help to avoid global namespace pollution)
   _help_header() { printf '\n%s%s%s\n' "${_HELP_BOLD}${_HELP_CYAN}" "$1" "${_HELP_RESET}"; }
   _help_flag() { printf '  %s%-28s%s %s\n' "${_HELP_BOLD}${_HELP_GREEN}" "$1" "${_HELP_RESET}" "$2"; }
   _help_cont() { printf '  %-28s %s%s%s\n' "" "${_HELP_DIM}" "$1" "${_HELP_RESET}"; }
@@ -560,7 +560,7 @@ if [[ $# -eq 0 ]]; then
   exit 0
 fi
 
-while getopts "h?vr:d:g:t:p:z:b:l:o:X:m:sickDSL:N:E:n:e:C:" OPT; do
+while getopts "hvr:d:g:t:p:z:b:l:o:X:m:sickDSL:N:E:n:e:C:" OPT; do
   case "$OPT" in
     r)  source_repository=$OPTARG
       ;;

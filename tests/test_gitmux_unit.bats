@@ -1333,6 +1333,9 @@ HELPER_HEADER
     [[ "$output" =~ "Path Filtering" ]]
     [[ "$output" =~ "-m <src:dest>" ]]
     [[ "$output" =~ "-d <path>" ]]
+    [[ "$output" =~ "-p <path>" ]]
+    [[ "$output" =~ "-g <ref>" ]]
+    [[ "$output" =~ "-l <rev-list>" ]]
 }
 
 @test "help: output contains Destination category" {
@@ -1378,4 +1381,17 @@ HELPER_HEADER
     [[ "$status" -eq 0 ]]
     # Should NOT contain ANSI escape sequences
     [[ ! "$output" =~ $'\033' ]]
+}
+
+@test "help: output contains main description" {
+    run bash -c "cd '$BATS_TEST_DIRNAME/..' && ./gitmux.sh -h 2>&1"
+    [[ "$output" =~ "Sync repository subsets while preserving full git history" ]]
+}
+
+@test "help: unknown option shows help then errors" {
+    run bash -c "cd '$BATS_TEST_DIRNAME/..' && ./gitmux.sh -Q 2>&1"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" =~ "Usage:" ]]
+    # Error message varies by shell/getopt implementation
+    [[ "$output" =~ "Unknown option" ]] || [[ "$output" =~ "illegal option" ]]
 }
