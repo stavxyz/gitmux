@@ -33,6 +33,7 @@ setup:
     command -v bats >/dev/null 2>&1 || echo "Warning: bats not installed (brew install bats-core)"
     command -v gh >/dev/null 2>&1 || echo "Warning: gh not installed (brew install gh)"
     command -v jq >/dev/null 2>&1 || echo "Warning: jq not installed (brew install jq)"
+    command -v git-filter-repo >/dev/null 2>&1 || echo "Warning: git-filter-repo not installed (pip install git-filter-repo)"
 
     echo "Setup complete!"
 
