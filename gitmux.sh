@@ -165,7 +165,8 @@ log_warn() {
 }
 
 # Log an error message.
-# Always shown regardless of LOG_LEVEL.
+# Always shown regardless of LOG_LEVEL - errors should never be suppressed
+# as they indicate failures that users must see.
 # Note: This does NOT exit the script. Use errxit() for fatal errors.
 # Arguments:
 #   $@ - Message(s) to print
@@ -532,7 +533,7 @@ function show_help()
                                error: Show only errors
   -S, --skip-preflight         Skip pre-flight validation checks (advanced use). (default: off)
   -k                           Keep the tmp git workspace around instead of cleaning it up (useful for debugging). (default: off)
-  -v                           Verbose output (sets log level to debug). (default: off)
+  -v                           Verbose output. Equivalent to --log-level debug. (default: off)
   -h                           Print help / usage
 EOF
 }
@@ -1634,7 +1635,9 @@ done
 log_info "✅ All ${MAPPING_COUNT} mapping(s) processed successfully!"
 log "$(git status)"
 log "Adding 'destination' remote --> ${destination_repository}"
-git remote add destination "${destination_repository}"
+if ! git remote add destination "${destination_repository}"; then
+  errxit "Failed to add destination remote. A remote named 'destination' may already exist from a previous run."
+fi
 
 DESTINATION_PR_BRANCH_NAME="update-from-${GIT_BRANCH}-${GIT_SHA}"
 if [[ -n "${_append_to_pr_branch_name}" ]]; then
@@ -1669,18 +1672,26 @@ if ! _repo_existence="$(git fetch destination 2>&1)"; then
     # Note: If you want to move the --orphan bits below, remove --bare from the next line.
     _pushd "${TMPGHCREATEWORKDIR}"
     # TODO: Make --private possible
-    gh repo create "${destination_owner}/${destination_project}" --public --license=unlicense --gitignore 'VVVV' --clone --description "${NEW_REPOSITORY_DESCRIPTION}"
+    if ! gh repo create "${destination_owner}/${destination_project}" --public --license=unlicense --gitignore 'VVVV' --clone --description "${NEW_REPOSITORY_DESCRIPTION}"; then
+      errxit "Failed to create destination repository: ${destination_owner}/${destination_project}"
+    fi
     _pushd "${destination_project}"
     # Configure git to use gh CLI for authentication (needed for git push)
-    gh auth setup-git
+    if ! gh auth setup-git; then
+      errxit "Failed to configure git authentication via gh CLI"
+    fi
     git remote --verbose show
     # Rename default branch to trunk (gitmux convention) if needed
     _current_branch=$(git branch --show-current)
     if [[ "${_current_branch}" != "${destination_branch}" ]]; then
       log "Renaming branch ${_current_branch} to ${destination_branch}"
       git branch -m "${destination_branch}"
-      git push origin "${destination_branch}:${destination_branch}"
-      gh repo edit "${destination_owner}/${destination_project}" --default-branch "${destination_branch}"
+      if ! git push origin "${destination_branch}:${destination_branch}"; then
+        errxit "Failed to push initial branch to new repository"
+      fi
+      if ! gh repo edit "${destination_owner}/${destination_project}" --default-branch "${destination_branch}"; then
+        log_warn "Failed to set default branch to '${destination_branch}'. You may need to set it manually."
+      fi
     fi
     _popd && _popd
     log "cleaning up gh-create workdir"
@@ -1688,24 +1699,33 @@ if ! _repo_existence="$(git fetch destination 2>&1)"; then
     ########## </GH CREATE REPO> ################
 
     log "Attempting (again) to fetch remote 'destination' --> ${destination_repository}"
-    git fetch destination
+    if ! git fetch destination; then
+      errxit "Failed to fetch from newly created destination repository"
+    fi
     # Our brand new repo destination branch needs at least one commit (to be the base branch of a PR).
     # This will also help remind us where this repository came from.
     git status
     # A local 'trunk' branch probably already exists
-    git checkout -b "gitmux-dest-${destination_branch}" destination/trunk
-    git pull destination trunk
+    if ! git checkout -b "gitmux-dest-${destination_branch}" destination/trunk; then
+      errxit "Failed to checkout destination branch from new repository"
+    fi
+    if ! git pull destination trunk; then
+      errxit "Failed to pull from destination trunk"
+    fi
     # Unstage everything (from ${DESTINATION_PR_BRANCH_NAME})
     git rm -r --cached .
     git status
     log "Creating empty commit for its own sake"
     git commit --message 'Hello: this repository was created by gitmux.' --allow-empty
-    # git push destination "${destination_branch}"
     pwd
-    git push destination "gitmux-dest-${destination_branch}:trunk"
+    if ! git push destination "gitmux-dest-${destination_branch}:trunk"; then
+      errxit "Failed to push initial commit to destination repository"
+    fi
     # Now go back to the build branch.
     log "Going back to build branch --> ${DESTINATION_PR_BRANCH_NAME}"
-    git checkout --force "${DESTINATION_PR_BRANCH_NAME}"
+    if ! git checkout --force "${DESTINATION_PR_BRANCH_NAME}"; then
+      errxit "Failed to checkout build branch '${DESTINATION_PR_BRANCH_NAME}'"
+    fi
   else
     errxit "${_repo_existence}"
   fi
@@ -1743,7 +1763,12 @@ perform_rebase () {
  # shellcheck disable=SC2086
   if [[ $(echo " ${REBASE_OPTIONS} " | sed -E 's/.*(\ -i\ |\ --interactive\ ).*/INTERACTIVE/') == "INTERACTIVE" ]]; then
     log_info "🎛️  Interactive rebase detected."
-    git rebase "${REBASE_OPTIONS}" "destination/${destination_branch}"
+    if ! git rebase "${REBASE_OPTIONS}" "destination/${destination_branch}"; then
+      log_error "Interactive rebase failed or was aborted."
+      log_info "📂 Navigate to the temp workspace to resolve manually:"
+      log_info "   cd ${_WORKSPACE}"
+      return 1
+    fi
     log_info "✅ Rebase completed successfully!"
     log_info "📋 After rebasing, you may want to run:"
     log_info "   git push destination ${DESTINATION_PR_BRANCH_NAME}"

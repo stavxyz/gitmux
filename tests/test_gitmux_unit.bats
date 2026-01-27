@@ -1112,6 +1112,27 @@ HELPER_HEADER
     [[ "$output" =~ "test message" ]]
 }
 
+@test "log_info: suppressed at error level" {
+    setup_log_helpers
+    LOG_LEVEL=error
+    run log_info "test message"
+    [[ -z "$output" ]]
+}
+
+@test "log_info: suppressed at warning level" {
+    setup_log_helpers
+    LOG_LEVEL=warning
+    run log_info "test message"
+    [[ -z "$output" ]]
+}
+
+@test "log_warn: suppressed at error level" {
+    setup_log_helpers
+    LOG_LEVEL=error
+    run log_warn "test message"
+    [[ -z "$output" ]]
+}
+
 # =============================================================================
 # CLI Flag Precedence Tests
 # =============================================================================
@@ -1199,6 +1220,13 @@ HELPER_HEADER
     run _preflight_result warn "test warning"
     [[ "$output" =~ "⚠️" ]]
     [[ "$output" =~ "test warning" ]]
+}
+
+@test "preflight: _preflight_result unknown shows question mark" {
+    setup_preflight_helpers
+    run _preflight_result unknownstatus "test unknown"
+    [[ "$output" =~ "❓" ]]
+    [[ "$output" =~ "unknown status" ]]
 }
 
 @test "preflight: checks git is installed" {
