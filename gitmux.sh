@@ -1531,6 +1531,46 @@ return result
   return 0
 }
 
+# Cached filter backend - set once at runtime
+_GITMUX_CACHED_BACKEND=""
+
+# Run the appropriate filter operation based on configured backend.
+# Caches the backend selection for consistency across all operations.
+# Arguments:
+#   $1 - source_path
+#   $2 - dest_path
+#   $3 - mapping_idx
+# Returns:
+#   0 on success, 1 on failure
+run_filter_operation() {
+  local _source_path="$1"
+  local _dest_path="$2"
+  local _mapping_idx="$3"
+
+  # Cache backend selection on first call
+  if [[ -z "${_GITMUX_CACHED_BACKEND}" ]]; then
+    _GITMUX_CACHED_BACKEND="$(get_filter_backend)"
+
+    # Log fallback message for auto mode when using filter-branch
+    if [[ "${GITMUX_FILTER_BACKEND}" == "auto" ]] && [[ "${_GITMUX_CACHED_BACKEND}" == "filter-branch" ]]; then
+      log_info "ℹ️  Using filter-branch (install git-filter-repo for ~10x speedup)"
+    fi
+  fi
+
+  case "${_GITMUX_CACHED_BACKEND}" in
+    filter-repo)
+      filter_run_filter_repo "$_source_path" "$_dest_path" "$_mapping_idx"
+      ;;
+    filter-branch)
+      filter_run_filter_branch "$_source_path" "$_dest_path" "$_mapping_idx"
+      ;;
+    *)
+      log_error "Unknown filter backend: ${_GITMUX_CACHED_BACKEND}"
+      return 1
+      ;;
+  esac
+}
+
 # Process a single source:dest mapping.
 # Performs file reorganization and git filter-branch for one path mapping.
 # Arguments:
@@ -1671,7 +1711,7 @@ process_single_mapping() {
   fi
 
   # Run the filter operation using the selected backend
-  if ! filter_run_filter_branch "${_source_path}" "${_dest_path}" "${_mapping_idx}"; then
+  if ! run_filter_operation "${_source_path}" "${_dest_path}" "${_mapping_idx}"; then
     return 1
   fi
 
