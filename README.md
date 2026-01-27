@@ -12,6 +12,7 @@ gitmux extracts files or directories from a source repository into a destination
 
 - **History Preservation** - Maintains complete commit history for synced content
 - **Selective Extraction** - Fork entire repos or just specific files/directories
+- **Multi-Path Migration** - Sync multiple directories in a single operation with `-m`
 - **Safe by Design** - Changes go through pull requests, never direct pushes
 - **Repeatable** - Run multiple times to sync incremental updates
 - **Flexible Rebase** - Multiple strategies for conflict resolution ([see below](#rebase-strategies))
@@ -83,6 +84,21 @@ just docker-run
   -s
 ```
 
+### Migrate Multiple Directories
+
+Sync multiple source paths to different destinations in one operation:
+
+```bash
+./gitmux.sh \
+  -r https://github.com/source-owner/monorepo \
+  -t https://github.com/dest-owner/dest-repo \
+  -m 'src/lib:packages/lib' \
+  -m 'tests/lib:packages/lib/tests' \
+  -s
+```
+
+This creates a single PR with both paths migrated, preserving history for each.
+
 ### Create Destination if Missing
 
 ```bash
@@ -135,12 +151,15 @@ Required:
 
 Filtering:
   -d <path>           Extract only this subdirectory
+  -p <path>           Place content at this path in destination
+  -m <src:dest>       Map source path to destination path (repeatable)
+                      Use \: to escape literal colons in paths
+                      Cannot be combined with -d or -p
   -l <rev-list>       Extract specific files (git rev-list format)
                       Note: file paths with spaces are not supported
   -g <gitref>         Source git ref (branch, tag, commit)
 
 Destination:
-  -p <path>           Place content at this path in destination
   -b <branch>         Target branch in destination (default: trunk)
   -c                  Create destination repo if it doesn't exist
 
@@ -341,6 +360,10 @@ A: gitmux uses the rebase strategy specified by `-X` (default: `theirs`). For co
 **Q: Can I run gitmux multiple times?**
 
 A: Yes. gitmux is designed for repeated runs. Each run creates a new PR with the latest changes from the source.
+
+**Q: Can I migrate multiple directories at once?**
+
+A: Yes. Use the `-m` flag multiple times to specify source:destination mappings. For example: `-m 'src:pkg/src' -m 'tests:pkg/tests'`. All paths are processed in a single operation, creating one branch and one PR. Use `\:` to escape literal colons in paths.
 
 **Q: How do I remove AI-generated attribution from commits?**
 
