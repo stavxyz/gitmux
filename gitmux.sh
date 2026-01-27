@@ -1418,8 +1418,8 @@ filter_run_filter_branch() {
   log "rev-list options --> ${rev_list_files}"
   log "subdirectory filter options --> ${_subdirectory_filter_options}"
 
-  # WARNING: git-filter-branch has a glut of gotchas...
-  # Yeah, we know.
+  # Suppress git-filter-branch's deprecation warning - we intentionally
+  # support filter-branch as fallback for systems without filter-repo
   export FILTER_BRANCH_SQUELCH_WARNING=1
 
   if [ -n "${rev_list_files}" ]; then
