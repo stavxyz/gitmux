@@ -247,6 +247,14 @@ _cmd_exists () {
   fi
 }
 
+# Check if git-filter-repo is available.
+# Returns:
+#   0 if git-filter-repo is in PATH and executable
+#   1 otherwise
+check_filter_repo_available() {
+  command -v git-filter-repo &> /dev/null
+}
+
 # Clean up temporary workspace.
 # Removes the temp directory unless KEEP_TMP_WORKSPACE is true.
 cleanup() {

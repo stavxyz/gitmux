@@ -36,6 +36,8 @@ HELPER_HEADER
         sed -n '/^function stripslashes () {/,/^}/p' "${GITMUX_SCRIPT}"
         # REPO_REGEX constant
         grep "^REPO_REGEX=" "${GITMUX_SCRIPT}"
+        # check_filter_repo_available function
+        sed -n '/^check_filter_repo_available() {/,/^}/p' "${GITMUX_SCRIPT}"
     } >> "${TEST_HELPER}"
 
     # Add URL parsing helper functions that use the extracted REPO_REGEX
@@ -1394,4 +1396,25 @@ HELPER_HEADER
     [[ "$output" =~ "Usage:" ]]
     # Error message varies by shell/getopt implementation
     [[ "$output" =~ "Unknown option" ]] || [[ "$output" =~ "illegal option" ]]
+}
+
+# ============================================================================
+# Filter backend detection tests
+# ============================================================================
+
+@test "check_filter_repo_available: returns 0 when git-filter-repo in PATH" {
+    # Create a mock git-filter-repo in temp directory
+    mkdir -p "${BATS_TEST_TMPDIR}/bin"
+    echo '#!/bin/bash' > "${BATS_TEST_TMPDIR}/bin/git-filter-repo"
+    echo 'echo "git-filter-repo mock"' >> "${BATS_TEST_TMPDIR}/bin/git-filter-repo"
+    chmod +x "${BATS_TEST_TMPDIR}/bin/git-filter-repo"
+
+    PATH="${BATS_TEST_TMPDIR}/bin:${PATH}" run check_filter_repo_available
+    [[ "$status" -eq 0 ]]
+}
+
+@test "check_filter_repo_available: returns 1 when not in PATH" {
+    # Use a PATH that definitely doesn't have git-filter-repo
+    PATH="/nonexistent" run check_filter_repo_available
+    [[ "$status" -eq 1 ]]
 }
