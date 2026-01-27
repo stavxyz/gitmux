@@ -213,33 +213,33 @@ All author/committer options can also be set via environment variables:
 Before starting any long-running operations (cloning, filter-branch, rebase), gitmux validates that everything is in place:
 
 ```
-[INFO] Running pre-flight checks...
-  ✓ git installed
-  ✓ gh installed
-  ✓ gh authenticated (yourname)
-  ✓ source repo accessible (org/source-repo)
-  ✓ destination repo accessible with push access (org/dest-repo)
-  ✓ destination branch exists (main)
-[INFO] All pre-flight checks passed.
+[INFO] 🔍 Running pre-flight checks...
+  ✅ git installed
+  ✅ gh installed
+  ✅ gh authenticated (yourname)
+  ✅ source repo accessible (org/source-repo)
+  ✅ destination repo accessible with push access (org/dest-repo)
+  ✅ destination branch exists (main)
+[INFO] ✅ All pre-flight checks passed!
 ```
 
 If any check fails, gitmux provides actionable error messages:
 
 ```
-[INFO] Running pre-flight checks...
-  ✓ git installed
-  ✓ gh installed
-  ✓ gh authenticated (yourname)
-  ✓ source repo accessible (org/source-repo)
-  ✗ destination repo not accessible (org/dest-repo)
+[INFO] 🔍 Running pre-flight checks...
+  ✅ git installed
+  ✅ gh installed
+  ✅ gh authenticated (yourname)
+  ✅ source repo accessible (org/source-repo)
+  ❌ destination repo not accessible (org/dest-repo)
 
-[ERROR]   gh cannot access this repository. This may be because:
+[ERROR]   📂 gh cannot access this repository. This may be because:
 [ERROR]     - The repository doesn't exist (use -c to create it)
 [ERROR]     - You don't have permission to access it
 [ERROR]     - GH_TOKEN is set to a token without access (current: GH_TOKEN is set)
 [ERROR]     - Try: unset GH_TOKEN && gh auth status
 
-[ERROR] Pre-flight checks failed. Aborting.
+[ERROR] ❌ Pre-flight checks failed. Aborting.
 ```
 
 Use `--skip-preflight` to bypass these checks (advanced use only).
