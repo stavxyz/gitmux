@@ -1058,7 +1058,8 @@ if [[ -z "${REBASE_OPTIONS}" ]]; then
   if [[ -z "$MERGE_STRATEGY_OPTION_FOR_REBASE" ]]; then
           errxit "Merge strategy option (-X) is required. Value choices: ours, theirs, patience, diff-algorithm=[patience|minimal|histogram|myers]"
   fi
-  REBASE_OPTIONS="--keep-empty --autostash --merge --strategy recursive --strategy-option ${MERGE_STRATEGY_OPTION_FOR_REBASE}"
+  # Use histogram diff algorithm by default - it's what GitHub uses and is best for code
+  REBASE_OPTIONS="--keep-empty --autostash --merge --strategy recursive --strategy-option ${MERGE_STRATEGY_OPTION_FOR_REBASE} --strategy-option diff-algorithm=histogram"
   _append_to_pr_branch_name="${MERGE_STRATEGY_OPTION_FOR_REBASE}"
 fi
 
