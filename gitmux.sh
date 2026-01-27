@@ -1510,9 +1510,10 @@ filter_run_filter_repo() {
 
   # Handle author/committer rewrite using name/email callbacks
   # Using callbacks instead of mailmap for reliable wildcard-like behavior
+  # Note: callbacks apply to BOTH author and committer (filter-repo limitation)
   if [[ -n "$GITMUX_AUTHOR_NAME" ]]; then
-    _filter_repo_args+=("--name-callback" "return b'${GITMUX_AUTHOR_NAME}' if commit.author_name else name")
-    _filter_repo_args+=("--email-callback" "return b'${GITMUX_AUTHOR_EMAIL}' if commit.author_email else email")
+    _filter_repo_args+=("--name-callback" "return b'${GITMUX_AUTHOR_NAME}'")
+    _filter_repo_args+=("--email-callback" "return b'${GITMUX_AUTHOR_EMAIL}'")
     log "Author override enabled: ${GITMUX_AUTHOR_NAME} <${GITMUX_AUTHOR_EMAIL}>"
   fi
 
@@ -1621,8 +1622,21 @@ process_single_mapping() {
 
   log_info "📁 Processing mapping $((_mapping_idx + 1))/${_mapping_total}: '${_source_path:-<root>}' → '${_dest_path:-<root>}'"
 
+  # Check which backend we're using to determine file reorganization strategy
+  local _backend
+  _backend="$(get_filter_backend)"
+
   # File reorganization: if destination path is specified, restructure files
-  if [[ -n "$_dest_path" ]] && ! [[ "${_dest_path}" == '/' ]]; then
+  # NOTE: For filter-repo with source→dest path mapping, skip this reorganization
+  # because filter-repo's --path-rename handles it directly on the history.
+  # Only filter-branch needs the pre-commit file manipulation.
+  local _skip_file_reorg=false
+  if [[ "$_backend" == "filter-repo" ]] && [[ -n "$_source_path" ]] && [[ -n "$_dest_path" ]] && [[ "$_source_path" != "$_dest_path" ]]; then
+    _skip_file_reorg=true
+    log "Using filter-repo with path rename ${_source_path}:${_dest_path} - skipping pre-commit file reorganization"
+  fi
+
+  if [[ -n "$_dest_path" ]] && ! [[ "${_dest_path}" == '/' ]] && [[ "$_skip_file_reorg" == "false" ]]; then
     log "Destination path ( ${_dest_path} ) was specified. Do a tango."
     # ( Must use an intermediate temporary directory )
     if ! mkdir -p __tmp__; then

@@ -192,6 +192,11 @@ jobs:
       - name: Verify bats installation
         run: bats --version
 
+      - name: Install git-filter-repo
+        run: |
+          pip install git-filter-repo
+          git-filter-repo --version
+
       - name: Run bats tests
         run: |
           if [ -d tests ] && ls tests/*.bats 1>/dev/null 2>&1; then

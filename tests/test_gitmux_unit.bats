@@ -838,8 +838,10 @@ HELPER_HEADER
     git push origin main
 
     # Run gitmux with multiple -m flags
+    # NOTE: Multi-path mappings require filter-branch backend because filter-repo
+    # rewrites history in a way that's incompatible with processing multiple mappings
     cd "$BATS_TEST_DIRNAME/.." || return 1
-    run bash -c "./gitmux.sh \
+    GITMUX_FILTER_BACKEND=filter-branch run bash -c "./gitmux.sh \
         -r '$E2E_TEST_DIR/source' \
         -t '$E2E_TEST_DIR/dest' \
         -b main \
@@ -1597,7 +1599,9 @@ Generated with [Claude Code](https://claude.ai/code)"
 
     [[ -n "$branch_name" ]] || { echo "No update-from-main branch found"; return 1; }
 
-    E2E_COMMIT_MSG=$(git log -1 --format="%B" "$branch_name" 2>/dev/null)
+    # Look at the filtered commit (HEAD~1), not the "Bring in changes" commit (HEAD)
+    E2E_COMMIT_MSG=$(git log -1 --format="%B" "${branch_name}~1" 2>/dev/null)
+    echo "Filtered commit message: $E2E_COMMIT_MSG" >&2
 
     # Should preserve human co-author
     [[ "$E2E_COMMIT_MSG" =~ "Co-authored-by: Human Dev" ]]
