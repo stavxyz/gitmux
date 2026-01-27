@@ -274,7 +274,19 @@ _check_python_version() {
   if ! command -v python3 &>/dev/null; then
     return 2
   fi
-  python3 -c "import sys; exit(0 if sys.version_info >= (3,6) else 1)" 2>/dev/null
+  local _py_output
+  if ! _py_output=$(python3 -c "import sys; exit(0 if sys.version_info >= (3,6) else 1)" 2>&1); then
+    local _exit_code=$?
+    if [[ $_exit_code -eq 1 ]]; then
+      # Known: Python < 3.6
+      return 1
+    else
+      # Unexpected error (segfault, permission denied, etc.) - log it
+      log_debug "Python version check failed unexpectedly (exit ${_exit_code}): ${_py_output}"
+      return 1
+    fi
+  fi
+  return 0
 }
 
 # Determine which filter backend to use.
@@ -291,8 +303,17 @@ get_filter_backend() {
     filter-branch)
       echo "filter-branch"
       ;;
-    auto|*)
+    auto)
       # Auto mode: use filter-repo if available AND Python 3.6+ is present
+      if check_filter_repo_available && _check_python_version; then
+        echo "filter-repo"
+      else
+        echo "filter-branch"
+      fi
+      ;;
+    *)
+      # Unknown value - warn and treat as auto
+      log_warn "Unknown GITMUX_FILTER_BACKEND value '${GITMUX_FILTER_BACKEND}', treating as 'auto'"
       if check_filter_repo_available && _check_python_version; then
         echo "filter-repo"
       else
@@ -1553,8 +1574,11 @@ return result
 
   log "Running: git filter-repo ${_filter_repo_args[*]}"
 
-  if ! git filter-repo "${_filter_repo_args[@]}"; then
+  local _filter_repo_output
+  if ! _filter_repo_output=$(git filter-repo "${_filter_repo_args[@]}" 2>&1); then
     log_error "git filter-repo failed for mapping $((_mapping_idx + 1))"
+    log_error "Filter-repo output: ${_filter_repo_output}"
+    log_debug "Command was: git filter-repo ${_filter_repo_args[*]}"
     return 1
   fi
 
@@ -1576,12 +1600,16 @@ filter_run_filter_repo_multipath() {
   local _filter_repo_args=("--force")
 
   # Build --path and --path-rename args for each mapping
+  # Use parse_path_mapping for proper escaped colon handling
   while IFS= read -r mapping; do
     [[ -z "$mapping" ]] && continue
 
-    local _src _dest
-    _src="${mapping%%:*}"
-    _dest="${mapping#*:}"
+    if ! parse_path_mapping "$mapping"; then
+      log_error "Failed to parse mapping in multipath operation: $mapping"
+      return 1
+    fi
+    local _src="$PARSED_SOURCE"
+    local _dest="$PARSED_DEST"
 
     # Add --path for source (to include these files)
     if [[ -n "$_src" ]]; then
@@ -1605,6 +1633,14 @@ filter_run_filter_repo_multipath() {
     _filter_repo_args+=("--name-callback" "return b'${GITMUX_AUTHOR_NAME}'")
     _filter_repo_args+=("--email-callback" "return b'${GITMUX_AUTHOR_EMAIL}'")
     log "Author override enabled: ${GITMUX_AUTHOR_NAME} <${GITMUX_AUTHOR_EMAIL}>"
+  fi
+
+  # Handle separate committer override if specified
+  if [[ -n "$GITMUX_COMMITTER_NAME" ]] && [[ "$GITMUX_COMMITTER_NAME" != "$GITMUX_AUTHOR_NAME" ]]; then
+    # Note: filter-repo callbacks can't distinguish author vs committer context directly
+    # When committer differs from author, log a warning about this limitation
+    log_warn "filter-repo backend applies same name/email to both author and committer"
+    log_warn "Using author values: ${GITMUX_AUTHOR_NAME} <${GITMUX_AUTHOR_EMAIL}>"
   fi
 
   # Handle Co-authored-by removal using message-callback
@@ -1633,8 +1669,11 @@ return result
 
   log "Running: git filter-repo ${_filter_repo_args[*]}"
 
-  if ! git filter-repo "${_filter_repo_args[@]}"; then
+  local _filter_repo_output
+  if ! _filter_repo_output=$(git filter-repo "${_filter_repo_args[@]}" 2>&1); then
     log_error "git filter-repo failed for multi-path operation"
+    log_error "Filter-repo output: ${_filter_repo_output}"
+    log_debug "Command was: git filter-repo ${_filter_repo_args[*]}"
     return 1
   fi
 
@@ -1654,15 +1693,19 @@ filter_run_filter_branch_multipath() {
   local _mappings="$1"
 
   # Build arrays of source paths and rename operations
+  # Use parse_path_mapping for proper escaped colon handling
   local _keep_paths=()
   local _rename_ops=()
 
   while IFS= read -r mapping; do
     [[ -z "$mapping" ]] && continue
 
-    local _src _dest
-    _src="${mapping%%:*}"
-    _dest="${mapping#*:}"
+    if ! parse_path_mapping "$mapping"; then
+      log_error "Failed to parse mapping in multipath operation: $mapping"
+      return 1
+    fi
+    local _src="$PARSED_SOURCE"
+    local _dest="$PARSED_DEST"
 
     if [[ -n "$_src" ]]; then
       _keep_paths+=("$_src")
@@ -1682,19 +1725,24 @@ filter_run_filter_branch_multipath() {
     fi
   done
 
-  # Build rename commands
+  # Build rename commands with error reporting
   local _rename_script=""
   for op in "${_rename_ops[@]}"; do
     local _src="${op%%:*}"
     local _dest="${op#*:}"
     _rename_script+="
     if [ -d \"${_src}\" ]; then
-      mkdir -p \"\$(dirname \"${_dest}\")\" 2>/dev/null || true
-      mv \"${_src}\" \"${_dest}\" 2>/dev/null || true
+      if ! mkdir -p \"\$(dirname \"${_dest}\")\" 2>/dev/null; then
+        echo \"[gitmux] Warning: mkdir failed for \$(dirname \"${_dest}\")\" >&2
+      fi
+      if ! mv \"${_src}\" \"${_dest}\" 2>/dev/null; then
+        echo \"[gitmux] Warning: mv ${_src} -> ${_dest} failed\" >&2
+      fi
     fi"
   done
 
   # Build the complete tree-filter script
+  # Note: rm failures for non-existent files are expected and not logged
   local _tree_filter_script="
     # Remove everything except specified paths
     for item in *; do
@@ -1775,9 +1823,11 @@ run_multipath_filter_operation() {
   case "$_backend" in
     filter-repo)
       filter_run_filter_repo_multipath "$_mappings"
+      return $?
       ;;
     filter-branch)
       filter_run_filter_branch_multipath "$_mappings"
+      return $?
       ;;
     *)
       log_error "Unknown filter backend: $_backend"
@@ -1815,9 +1865,11 @@ run_filter_operation() {
   case "${_GITMUX_CACHED_BACKEND}" in
     filter-repo)
       filter_run_filter_repo "$_source_path" "$_dest_path" "$_mapping_idx"
+      return $?
       ;;
     filter-branch)
       filter_run_filter_branch "$_source_path" "$_dest_path" "$_mapping_idx"
+      return $?
       ;;
     *)
       log_error "Unknown filter backend: ${_GITMUX_CACHED_BACKEND}"
@@ -1827,7 +1879,8 @@ run_filter_operation() {
 }
 
 # Process a single source:dest mapping.
-# Performs file reorganization and git filter-branch for one path mapping.
+# Performs file reorganization (when needed) and runs the selected filter backend
+# (filter-repo or filter-branch) for one path mapping.
 # Arguments:
 #   $1 - Source path (subdirectory to extract, empty for root)
 #   $2 - Destination path (where to place content, empty for root)
@@ -2110,8 +2163,12 @@ if [[ $MAPPING_COUNT -gt 1 ]]; then
 
   # Count commits in the filtered history
   _commit_count=""
-  if ! _commit_count=$(git rev-list --count HEAD 2>&1); then
+  _count_output=""
+  if ! _count_output=$(git rev-list --count HEAD 2>&1); then
+    log_warn "Could not count commits: ${_count_output}"
     _commit_count="?"
+  else
+    _commit_count="$_count_output"
   fi
   log_info "✨ Filter completed (${_commit_count} commits preserved)"
 
