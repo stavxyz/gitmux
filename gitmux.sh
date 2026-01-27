@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 
-# See ./gitmux -h for more info.
+# gitmux - Sync repository subsets while preserving full git history.
 #
 # What does this script do?
 #   This script creates a pull request on a destination repository
 #   with content from a source repository and maintains all commit
 #   history for all synced/forked files.
 #
-#   See ./gitmux -h for more info.
+#   Run ./gitmux.sh -h for usage information.
 #
 # The pull request mechanism allows for discrete modifications
 # to be made in both the source and destination repositories.
@@ -456,10 +456,10 @@ function validate_no_dest_overlap () {
   return 0
 }
 
-# DEPRECATED: Print log message if verbose mode is enabled.
-# This legacy function is kept for backwards compatibility only.
-# New code should use log_debug(), log_info(), log_warn(), or log_error().
-# This function may be removed in a future version.
+# DEPRECATED: Legacy verbose logging function.
+# Internal uses remain for backwards compatibility, but new code should use
+# the log_debug(), log_info(), log_warn(), or log_error() functions instead.
+# Removal planned for v2.0.
 # Arguments:
 #   $@ - Message(s) to print
 function log () {
@@ -616,6 +616,7 @@ case "$LOG_LEVEL" in
   debug|info|warning|error) ;; # Valid values
   *) errxit "--log-level must be 'debug', 'info', 'warning', or 'error', got: ${LOG_LEVEL}" ;;
 esac
+
 if [[ -z "$source_repository" ]]; then
   errxit "Source repository url or path (-r) is required"
 elif [[ -z "$destination_repository" ]]; then
@@ -764,11 +765,12 @@ _preflight_result() {
 
 # Run pre-flight checks to validate environment before starting work.
 # Checks are conditional based on which flags are used.
+# Note: SKIP_PREFLIGHT and DRY_RUN are evaluated by the caller before
+# invoking this function; this function assumes it should run.
 # Globals required (must be set before calling):
 #   source_repository, destination_repository, source_git_ref
 #   destination_owner, destination_project, destination_branch
 #   SUBMIT_PR, CREATE_NEW_REPOSITORY, GITHUB_TEAMS
-#   SKIP_PREFLIGHT, DRY_RUN
 # Returns:
 #   0 if all checks pass, 1 if any check fails
 preflight_checks() {
@@ -782,7 +784,7 @@ preflight_checks() {
     _gh_needed=true
   fi
 
-  # Determine if source/destination are URLs (not local paths)
+  # Determine if source/destination are URLs (treat non-directories as remote repos)
   if [[ ! -d "${source_repository}" ]]; then
     _source_is_url=true
   fi
@@ -792,7 +794,7 @@ preflight_checks() {
 
   log_info "🔍 Running pre-flight checks..."
 
-  # Check 1: git is installed (always required)
+  # Verify git is installed (always required)
   if command -v git &> /dev/null; then
     _preflight_result pass "git installed"
   else
@@ -800,7 +802,7 @@ preflight_checks() {
     _checks_passed=false
   fi
 
-  # Check 2: gh is installed (if needed)
+  # Verify gh is installed (if needed)
   if [[ "$_gh_needed" == "true" ]]; then
     if command -v gh &> /dev/null; then
       _preflight_result pass "gh CLI installed"
@@ -812,7 +814,7 @@ preflight_checks() {
     fi
   fi
 
-  # Check 3: gh is authenticated (if gh is needed)
+  # Verify gh is authenticated (if gh is needed)
   if [[ "$_gh_needed" == "true" ]] && command -v gh &> /dev/null; then
     local _gh_auth_output
     local _gh_auth_status
@@ -845,7 +847,7 @@ preflight_checks() {
     fi
   fi
 
-  # Check 4: Source repository is accessible
+  # Verify source repository is accessible
   if [[ "$_source_is_url" == "true" ]]; then
     local _ls_remote_output
     local _ls_remote_status
@@ -876,10 +878,11 @@ preflight_checks() {
         log_error ""
         _checks_passed=false
       fi
-    elif git -C "${source_repository}" rev-parse --git-dir &> /dev/null; then
+    elif _git_check_output=$(git -C "${source_repository}" rev-parse --git-dir 2>&1); then
       # Bare repository or non-standard git directory
       _preflight_result pass "source repo accessible (local)"
     else
+      log_debug "git rev-parse output: ${_git_check_output}"
       _preflight_result fail "source path is not a git repository"
       log_error ""
       log_error "  📂 Path exists but is not a git repository: ${source_repository}"
@@ -888,7 +891,7 @@ preflight_checks() {
     fi
   fi
 
-  # Check 5: Source git ref exists (if -g specified)
+  # Verify source git ref exists (if -g specified)
   if [[ -n "${source_git_ref}" ]] && [[ "$_source_is_url" == "true" ]]; then
     local _ref_output
     local _ref_status
@@ -904,7 +907,7 @@ preflight_checks() {
     fi
   fi
 
-  # Check 6: Destination repo accessible and has write access (if gh needed and dest is URL)
+  # Verify destination repo is accessible with write access (if gh needed and dest is URL)
   if [[ "$_gh_needed" == "true" ]] && [[ "$_dest_is_url" == "true" ]] && command -v gh &> /dev/null; then
     # Verify destination_owner and destination_project are set
     if [[ -z "${destination_owner:-}" ]] || [[ -z "${destination_project:-}" ]]; then
@@ -960,7 +963,7 @@ preflight_checks() {
       fi
     fi
 
-    # Check 7: Destination branch exists (unless creating new repo)
+    # Verify destination branch exists (unless creating new repo)
     if [[ "${CREATE_NEW_REPOSITORY}" != "true" ]] && [[ "$_can_push" == "true" ]]; then
       local _branch_output
       local _branch_status
@@ -988,7 +991,7 @@ preflight_checks() {
     fi
   fi
 
-  # Check 8: Teams exist (if -z used)
+  # Verify teams exist (if -z used)
   if [[ ${#GITHUB_TEAMS[@]} -gt 0 ]] && command -v gh &> /dev/null; then
     for orgteam in "${GITHUB_TEAMS[@]}"; do
       local _org="${orgteam%%/*}"
@@ -1165,9 +1168,13 @@ log "Working in tmpdir ${gitmux_TMP_WORKSPACE}"
 _pushd "${gitmux_TMP_WORKSPACE}"
 _GITDIR="tmp-${source_owner}_${source_project}"
 log_info "📥 Cloning source repository..."
-git clone "${source_repository}" "${_GITDIR}"
+if ! git clone "${source_repository}" "${_GITDIR}"; then
+  errxit "Failed to clone source repository: ${source_repository}"
+fi
 _pushd "${_GITDIR}"
-git fetch --all --tags
+if ! git fetch --all --tags; then
+  errxit "Failed to fetch tags from source repository"
+fi
 _WORKSPACE=$(pwd)
 
 # The following is unnecessary when doing a full clone.
@@ -1423,7 +1430,13 @@ process_single_mapping() {
 
   # Count commits in the filtered history
   local _commit_count
-  _commit_count=$(git rev-list --count HEAD 2>/dev/null || echo "?")
+  local _count_output
+  if ! _count_output=$(git rev-list --count HEAD 2>&1); then
+    log_warn "Could not count commits: ${_count_output}"
+    _commit_count="?"
+  else
+    _commit_count="$_count_output"
+  fi
   log_info "✨ Filter completed for mapping $((_mapping_idx + 1)) (${_commit_count} commits preserved)"
   log "$(git status)"
   return 0
@@ -1556,11 +1569,13 @@ for ((mapping_idx = 0; mapping_idx < MAPPING_COUNT; mapping_idx++)); do
 
     # Remove filter-branch backup refs to allow re-running filter-branch
     # Use process substitution to avoid subshell issues with pipelines
+    _ref_delete_output=""
     if refs_to_delete=$(git for-each-ref --format='%(refname)' refs/original/ 2>&1); then
       if [[ -n "$refs_to_delete" ]]; then
         while IFS= read -r ref; do
-          if [[ -n "$ref" ]] && ! git update-ref -d "$ref" 2>&1; then
+          if [[ -n "$ref" ]] && ! _ref_delete_output=$(git update-ref -d "$ref" 2>&1); then
             log_warn "Failed to delete backup ref: $ref"
+            log_debug "Error: ${_ref_delete_output}"
           fi
         done <<< "$refs_to_delete"
       fi

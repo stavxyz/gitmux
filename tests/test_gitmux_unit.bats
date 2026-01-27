@@ -1230,3 +1230,48 @@ HELPER_HEADER
     # Should show pre-flight failure message
     [[ "$output" =~ "Pre-flight" ]] || [[ "$output" =~ "pre-flight" ]] || [[ "$output" =~ "❌" ]]
 }
+
+@test "preflight: failure prevents repository clone attempt" {
+    # Use a non-existent repo - preflight should fail before any clone attempt
+    run bash -c "cd '$BATS_TEST_DIRNAME/..' && ./gitmux.sh -r https://github.com/nonexistent-owner-xyz/nonexistent-repo-xyz -t https://github.com/foo/bar 2>&1"
+    [[ "$status" -ne 0 ]]
+    # Should NOT see cloning message - preflight should abort before that
+    [[ ! "$output" =~ "Cloning source repository" ]]
+}
+
+@test "validation: --log-level DEBUG (uppercase) fails validation" {
+    # Log levels are case-sensitive
+    run bash -c "cd '$BATS_TEST_DIRNAME/..' && ./gitmux.sh --log-level DEBUG -r foo -t bar 2>&1"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" =~ "--log-level must be" ]]
+}
+
+@test "validation: --log-level INFO (uppercase) fails validation" {
+    run bash -c "cd '$BATS_TEST_DIRNAME/..' && ./gitmux.sh --log-level INFO -r foo -t bar 2>&1"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" =~ "--log-level must be" ]]
+}
+
+@test "log_error: produces output even at debug level" {
+    setup_log_helpers
+    LOG_LEVEL=debug
+    run log_error "test message"
+    [[ "$output" =~ "[ERROR]" ]]
+    [[ "$output" =~ "test message" ]]
+}
+
+@test "log_error: produces output even at info level" {
+    setup_log_helpers
+    LOG_LEVEL=info
+    run log_error "test message"
+    [[ "$output" =~ "[ERROR]" ]]
+    [[ "$output" =~ "test message" ]]
+}
+
+@test "log_error: produces output even at warning level" {
+    setup_log_helpers
+    LOG_LEVEL=warning
+    run log_error "test message"
+    [[ "$output" =~ "[ERROR]" ]]
+    [[ "$output" =~ "test message" ]]
+}
