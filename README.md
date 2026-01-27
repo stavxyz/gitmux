@@ -174,9 +174,10 @@ GitHub Integration:
 Author Rewriting:
   -N, --author-name <name>   Override author name for all commits
   -E, --author-email <email> Override author email for all commits
-  -n, --committer-name       Override committer name
-  -e, --committer-email      Override committer email
-  -C, --coauthor-action      Co-authored-by: claude|all|keep
+  -n, --committer-name <name>  Override committer name
+  -e, --committer-email <email> Override committer email
+  -C, --coauthor-action <act>  Co-authored-by: claude|all|keep
+                               (default: claude when author options used, else keep)
   -D, --dry-run              Preview changes without modifying anything
 
 Logging & Debug:
