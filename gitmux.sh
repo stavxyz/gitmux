@@ -219,7 +219,7 @@ _realpath () {
 #   0 if command exists, 1 otherwise
 _cmd_exists () {
   if ! type "$*" &> /dev/null; then
-    errcho "$* command not installed"
+    log_warn "$* command not installed"
     return 1
   fi
 }
@@ -231,12 +231,12 @@ cleanup() {
     # shellcheck disable=SC2086
     if [ ${KEEP_TMP_WORKSPACE:-false} = true ]; then
       # implement -k (keep) and check for it
-      errcho "You may navigate to ${gitmux_TMP_WORKSPACE} to complete the workflow manually (or, try again)."
+      log_info "📁 Workspace preserved at: ${gitmux_TMP_WORKSPACE}"
+      log_info "   You may navigate there to complete the workflow manually."
     else
-      errcho "Cleaning up."
+      log_debug "Cleaning up temp workspace..."
       rm -rf "${gitmux_TMP_WORKSPACE}"
-      errcho "Deleted gitmux tmp workspace ${gitmux_TMP_WORKSPACE}"
-      echo "🛀"
+      log_debug "Deleted gitmux tmp workspace ${gitmux_TMP_WORKSPACE}"
     fi
   fi
 }
@@ -246,9 +246,9 @@ cleanup() {
 #   $1 - (optional) Line number where error occurred
 # shellcheck disable=SC2120
 errcleanup() {
-  errcho "⛔️ gitmux execution failed."
+  log_error "⛔️ gitmux execution failed."
   if [ -n "${1:-}" ]; then
-    errcho "⏩ Error at line ${1}."
+    log_error "   Error occurred at line ${1}."
   fi
   cleanup
   exit 1
@@ -257,7 +257,7 @@ errcleanup() {
 # Handle interrupt signals (SIGHUP, SIGINT, SIGTERM).
 # Cleans up and exits gracefully.
 intcleanup() {
-  errcho "🍿 Script discontinued."
+  log_warn "🍿 Script interrupted."
   cleanup
   exit 1
 }
@@ -383,12 +383,12 @@ function parse_path_mapping () {
   colon_count=$(echo "$escaped_mapping" | tr -cd ':' | wc -c | tr -d ' ')
 
   if [[ "$colon_count" -eq 0 ]]; then
-    errcho "Invalid path mapping: '$mapping' - missing colon separator"
-    errcho "Format: source:dest (use \\: to escape literal colons)"
+    log_error "Invalid path mapping: '$mapping' - missing colon separator"
+    log_error "Format: source:dest (use \\: to escape literal colons)"
     return 1
   elif [[ "$colon_count" -gt 1 ]]; then
-    errcho "Invalid path mapping: '$mapping' - multiple unescaped colons"
-    errcho "Format: source:dest (use \\: to escape literal colons)"
+    log_error "Invalid path mapping: '$mapping' - multiple unescaped colons"
+    log_error "Format: source:dest (use \\: to escape literal colons)"
     return 1
   fi
 
@@ -425,24 +425,24 @@ function validate_no_dest_overlap () {
       # Empty paths (root) overlap with everything
       if [[ -z "$path1" ]] || [[ -z "$path2" ]]; then
         if [[ ${#paths[@]} -gt 1 ]]; then
-          errcho "Destination path conflict: root (empty) path cannot be used with other paths"
+          log_error "Destination path conflict: root (empty) path cannot be used with other paths"
           return 1
         fi
       fi
 
       # Check if paths are identical
       if [[ "$path1" == "$path2" ]]; then
-        errcho "Destination path conflict: '$path1' specified multiple times"
+        log_error "Destination path conflict: '$path1' specified multiple times"
         return 1
       fi
 
       # Check if one is a prefix of the other (with path separator awareness)
       if [[ "$path1/" == "${path2:0:$((${#path1}+1))}" ]]; then
-        errcho "Destination path conflict: '$path1' is a parent of '$path2'"
+        log_error "Destination path conflict: '$path1' is a parent of '$path2'"
         return 1
       fi
       if [[ "$path2/" == "${path1:0:$((${#path2}+1))}" ]]; then
-        errcho "Destination path conflict: '$path2' is a parent of '$path1'"
+        log_error "Destination path conflict: '$path2' is a parent of '$path1'"
         return 1
       fi
     done
@@ -741,22 +741,26 @@ fi
 # starting long-running operations. Fails fast with actionable error messages.
 #
 
-# Print a check result with pass/fail indicator.
+# Print a check result with pass/fail/warn indicator.
 # Arguments:
-#   $1 - "pass" or "fail"
+#   $1 - "pass", "fail", or "warn"
 #   $2 - Check description
 _preflight_result() {
   local status="$1"
   local desc="$2"
-  if [[ "$status" == "pass" ]]; then
-    echo "  ✓ ${desc}" >&2
-  else
-    echo "  ✗ ${desc}" >&2
-  fi
+  case "$status" in
+    pass) echo "  ✅ ${desc}" >&2 ;;
+    fail) echo "  ❌ ${desc}" >&2 ;;
+    warn) echo "  ⚠️  ${desc}" >&2 ;;
+  esac
 }
 
 # Run pre-flight checks to validate environment before starting work.
 # Checks are conditional based on which flags are used.
+# Globals required (must be set before calling):
+#   source_repository, destination_repository, source_git_ref
+#   destination_owner, destination_project, destination_branch
+#   SUBMIT_PR, CREATE_NEW_REPOSITORY, GITHUB_TEAMS
 # Returns:
 #   0 if all checks pass, 1 if any check fails
 preflight_checks() {
@@ -778,7 +782,7 @@ preflight_checks() {
     _dest_is_url=true
   fi
 
-  log_info "Running pre-flight checks..."
+  log_info "🔍 Running pre-flight checks..."
 
   # Check 1: git is installed (always required)
   if command -v git &> /dev/null; then
@@ -791,11 +795,11 @@ preflight_checks() {
   # Check 2: gh is installed (if needed)
   if [[ "$_gh_needed" == "true" ]]; then
     if command -v gh &> /dev/null; then
-      _preflight_result pass "gh installed"
+      _preflight_result pass "gh CLI installed"
     else
-      _preflight_result fail "gh not installed (required for -s, -c, or -z flags)"
+      _preflight_result fail "gh CLI not installed (required for -s, -c, or -z flags)"
       log_error ""
-      log_error "  Install from: https://cli.github.com/"
+      log_error "  📦 Install from: https://cli.github.com/"
       _checks_passed=false
     fi
   fi
@@ -803,18 +807,26 @@ preflight_checks() {
   # Check 3: gh is authenticated (if gh is needed)
   if [[ "$_gh_needed" == "true" ]] && command -v gh &> /dev/null; then
     local _gh_auth_output
-    if _gh_auth_output=$(gh auth status 2>&1); then
-      # Extract username from auth status
-      local _gh_user
-      _gh_user=$(echo "$_gh_auth_output" | grep -oE "Logged in to [^ ]+ account [^ ]+ " | head -1 | awk '{print $NF}' | tr -d '(' | tr -d ')' || echo "unknown")
-      if [[ -z "$_gh_user" ]] || [[ "$_gh_user" == "unknown" ]]; then
-        _gh_user=$(echo "$_gh_auth_output" | grep -oE "account [^ ]+" | head -1 | awk '{print $2}' || echo "authenticated")
+    local _gh_auth_status
+    _gh_auth_output=$(gh auth status 2>&1)
+    _gh_auth_status=$?
+
+    if [[ $_gh_auth_status -eq 0 ]]; then
+      # Extract username from auth status - try multiple patterns
+      local _gh_user=""
+      _gh_user=$(echo "$_gh_auth_output" | grep -oE "Logged in to [^ ]+ account [^ ]+ " | head -1 | awk '{print $NF}' | tr -d '()')
+      if [[ -z "$_gh_user" ]]; then
+        _gh_user=$(echo "$_gh_auth_output" | grep -oE "account [^ ]+" | head -1 | awk '{print $2}')
+      fi
+      if [[ -z "$_gh_user" ]]; then
+        log_debug "Could not parse username from gh auth output, showing as 'authenticated'"
+        _gh_user="authenticated"
       fi
       _preflight_result pass "gh authenticated (${_gh_user})"
     else
       _preflight_result fail "gh not authenticated"
       log_error ""
-      log_error "  gh cannot authenticate. This may be because:"
+      log_error "  🔐 gh cannot authenticate. This may be because:"
       log_error "    - You haven't logged in: run 'gh auth login'"
       if [[ -n "${GH_TOKEN:-}" ]]; then
         log_error "    - GH_TOKEN is set but may be invalid or expired"
@@ -828,23 +840,41 @@ preflight_checks() {
   # Check 4: Source repository is accessible
   if [[ "$_source_is_url" == "true" ]]; then
     local _ls_remote_output
-    if _ls_remote_output=$(git ls-remote --exit-code "${source_repository}" HEAD 2>&1); then
-      _preflight_result pass "source repo accessible (${source_repository})"
+    local _ls_remote_status
+    _ls_remote_output=$(git ls-remote --exit-code "${source_repository}" HEAD 2>&1)
+    _ls_remote_status=$?
+
+    if [[ $_ls_remote_status -eq 0 ]]; then
+      _preflight_result pass "source repo accessible"
     else
       _preflight_result fail "source repo not accessible"
       log_error ""
-      log_error "  Cannot access source repository: ${source_repository}"
+      log_error "  📂 Cannot access source repository: ${source_repository}"
       log_error "  Git error: ${_ls_remote_output}"
       log_error ""
       _checks_passed=false
     fi
   else
-    if [[ -d "${source_repository}/.git" ]] || git -C "${source_repository}" rev-parse --git-dir &> /dev/null; then
-      _preflight_result pass "source repo accessible (local: ${source_repository})"
+    # Local repository - verify git can actually read it
+    local _git_check_output
+    if [[ -d "${source_repository}/.git" ]]; then
+      if _git_check_output=$(git -C "${source_repository}" rev-parse --git-dir 2>&1); then
+        _preflight_result pass "source repo accessible (local)"
+      else
+        _preflight_result fail "source .git directory exists but repository is not readable"
+        log_error ""
+        log_error "  📂 The .git directory exists but git cannot read it: ${source_repository}"
+        log_error "  Git error: ${_git_check_output}"
+        log_error ""
+        _checks_passed=false
+      fi
+    elif git -C "${source_repository}" rev-parse --git-dir &> /dev/null; then
+      # Bare repository or non-standard git directory
+      _preflight_result pass "source repo accessible (local)"
     else
       _preflight_result fail "source path is not a git repository"
       log_error ""
-      log_error "  Path exists but is not a git repository: ${source_repository}"
+      log_error "  📂 Path exists but is not a git repository: ${source_repository}"
       log_error ""
       _checks_passed=false
     fi
@@ -853,47 +883,69 @@ preflight_checks() {
   # Check 5: Source git ref exists (if -g specified)
   if [[ -n "${source_git_ref}" ]] && [[ "$_source_is_url" == "true" ]]; then
     local _ref_output
-    if _ref_output=$(git ls-remote --exit-code "${source_repository}" "${source_git_ref}" 2>&1); then
+    local _ref_status
+    _ref_output=$(git ls-remote --exit-code "${source_repository}" "${source_git_ref}" 2>&1)
+    _ref_status=$?
+
+    if [[ $_ref_status -eq 0 ]]; then
       _preflight_result pass "source git ref exists (${source_git_ref})"
     else
-      # Try as a commit hash (ls-remote doesn't find commits directly)
-      _preflight_result pass "source git ref specified (${source_git_ref}) - will verify during clone"
+      # ls-remote can't verify commit hashes directly - need to clone first
+      log_debug "git ls-remote could not verify ref '${source_git_ref}': ${_ref_output}"
+      _preflight_result warn "source git ref '${source_git_ref}' (deferred verification - may be commit hash)"
     fi
   fi
 
   # Check 6: Destination repo accessible and has write access (if gh needed and dest is URL)
   if [[ "$_gh_needed" == "true" ]] && [[ "$_dest_is_url" == "true" ]] && command -v gh &> /dev/null; then
-    # Parse destination URI for gh api call
+    # Verify destination_owner and destination_project are set
+    if [[ -z "${destination_owner:-}" ]] || [[ -z "${destination_project:-}" ]]; then
+      log_error "Internal error: destination_owner/destination_project not set before preflight checks"
+      return 1
+    fi
+
     local _dest_api_path="${destination_owner}/${destination_project}"
     local _dest_perms_output
+    local _dest_api_status
     local _can_push=false
 
-    if _dest_perms_output=$(gh api "repos/${_dest_api_path}" --jq '.permissions' 2>&1); then
-      # Check if we have push permission
-      if echo "$_dest_perms_output" | grep -q '"push":true'; then
+    # Use proper jq to extract push permission directly
+    _dest_perms_output=$(gh api "repos/${_dest_api_path}" --jq '.permissions.push // "null"' 2>&1)
+    _dest_api_status=$?
+
+    if [[ $_dest_api_status -eq 0 ]]; then
+      if [[ "$_dest_perms_output" == "true" ]]; then
         _can_push=true
-        _preflight_result pass "destination repo accessible with push access (${_dest_api_path})"
-      else
+        _preflight_result pass "destination repo accessible with push access"
+      elif [[ "$_dest_perms_output" == "false" ]]; then
         _preflight_result fail "destination repo accessible but no push access"
         log_error ""
-        log_error "  You can access ${_dest_api_path} but don't have push permissions."
-        log_error "  Permissions: ${_dest_perms_output}"
+        log_error "  🔒 You can access ${_dest_api_path} but don't have push permissions."
         log_error ""
         _checks_passed=false
+      else
+        # Permissions field might be null or missing
+        _preflight_result warn "destination repo accessible (permissions unclear)"
+        log_debug "Unexpected permissions response: ${_dest_perms_output}"
+        # Don't fail - let the actual push operation determine if we have access
+        _can_push=true
       fi
     else
-      # Repo not accessible - might not exist
+      # Repo not accessible - analyze the error
       if [[ "${CREATE_NEW_REPOSITORY}" == "true" ]]; then
-        _preflight_result pass "destination repo will be created (${_dest_api_path})"
+        _preflight_result pass "destination repo will be created"
       else
         _preflight_result fail "destination repo not accessible (${_dest_api_path})"
         log_error ""
-        log_error "  gh cannot access this repository. This may be because:"
+        log_error "  📂 gh cannot access this repository. This may be because:"
         log_error "    - The repository doesn't exist (use -c to create it)"
         log_error "    - You don't have permission to access it"
         if [[ -n "${GH_TOKEN:-}" ]]; then
-          log_error "    - GH_TOKEN is set to a token without access (current: GH_TOKEN is set)"
+          log_error "    - GH_TOKEN is set to a token without access"
           log_error "    - Try: unset GH_TOKEN && gh auth status"
+        fi
+        if [[ "$_dest_perms_output" =~ "rate limit" ]] || [[ "$_dest_perms_output" =~ "403" ]]; then
+          log_error "    - API rate limit may have been exceeded"
         fi
         log_error ""
         _checks_passed=false
@@ -903,14 +955,26 @@ preflight_checks() {
     # Check 7: Destination branch exists (unless creating new repo)
     if [[ "${CREATE_NEW_REPOSITORY}" != "true" ]] && [[ "$_can_push" == "true" ]]; then
       local _branch_output
-      if _branch_output=$(gh api "repos/${_dest_api_path}/branches/${destination_branch}" --jq '.name' 2>&1); then
+      local _branch_status
+      _branch_output=$(gh api "repos/${_dest_api_path}/branches/${destination_branch}" --jq '.name' 2>&1)
+      _branch_status=$?
+
+      if [[ $_branch_status -eq 0 ]]; then
         _preflight_result pass "destination branch exists (${destination_branch})"
       else
-        _preflight_result fail "destination branch not found (${destination_branch})"
-        log_error ""
-        log_error "  Branch '${destination_branch}' does not exist in ${_dest_api_path}"
-        log_error "  Use -b to specify a different branch, or check the repository's default branch."
-        log_error ""
+        # Analyze the error
+        if [[ "$_branch_output" =~ "404" ]] || [[ "$_branch_output" =~ "Branch not found" ]] || [[ "$_branch_output" =~ "Not Found" ]]; then
+          _preflight_result fail "destination branch not found (${destination_branch})"
+          log_error ""
+          log_error "  🌿 Branch '${destination_branch}' does not exist in ${_dest_api_path}"
+          log_error "  Use -b to specify a different branch, or check the repository's default branch."
+          log_error ""
+        else
+          _preflight_result fail "destination branch check failed (${destination_branch})"
+          log_error ""
+          log_error "  🌿 Failed to verify branch: ${_branch_output}"
+          log_error ""
+        fi
         _checks_passed=false
       fi
     fi
@@ -921,13 +985,26 @@ preflight_checks() {
     for orgteam in "${GITHUB_TEAMS[@]}"; do
       local _org="${orgteam%%/*}"
       local _team="${orgteam#*/}"
-      if gh api "orgs/${_org}/teams/${_team}" --jq '.id' &> /dev/null; then
+      local _team_api_output
+      local _team_api_status
+
+      _team_api_output=$(gh api "orgs/${_org}/teams/${_team}" --jq '.id' 2>&1)
+      _team_api_status=$?
+
+      if [[ $_team_api_status -eq 0 ]] && [[ -n "$_team_api_output" ]] && [[ "$_team_api_output" != "null" ]]; then
         _preflight_result pass "team exists (${orgteam})"
       else
-        _preflight_result fail "team not found (${orgteam})"
+        _preflight_result fail "team check failed (${orgteam})"
         log_error ""
-        log_error "  Team '${_team}' not found in organization '${_org}'"
-        log_error "  Verify the team name and your permissions."
+        if [[ "$_team_api_output" =~ "404" ]] || [[ "$_team_api_output" =~ "Not Found" ]]; then
+          log_error "  👥 Team '${_team}' not found in organization '${_org}'"
+          log_error "  Verify the team name and your permissions."
+        elif [[ "$_team_api_output" =~ "403" ]] || [[ "$_team_api_output" =~ "rate limit" ]]; then
+          log_error "  👥 API rate limit or permission issue for team '${orgteam}'"
+          log_error "  Response: ${_team_api_output}"
+        else
+          log_error "  👥 Unexpected error checking team '${orgteam}': ${_team_api_output}"
+        fi
         log_error ""
         _checks_passed=false
       fi
@@ -935,21 +1012,14 @@ preflight_checks() {
   fi
 
   if [[ "$_checks_passed" == "true" ]]; then
-    log_info "All pre-flight checks passed."
+    log_info "✅ All pre-flight checks passed!"
     return 0
   else
     log_error ""
-    log_error "Pre-flight checks failed. Aborting."
+    log_error "❌ Pre-flight checks failed. Aborting."
     return 1
   fi
 }
-
-# Run pre-flight checks unless skipped
-if [[ "${SKIP_PREFLIGHT}" != "true" ]] && [[ "${DRY_RUN}" != "true" ]]; then
-  if ! preflight_checks; then
-    exit 1
-  fi
-fi
 
 # Export this for `gh`.
 export GH_HOST=${GH_HOST}
@@ -1043,7 +1113,7 @@ export GH_HOST="${destination_domain}"
 
 if [ "${source_domain}" != "${destination_domain}" ]; then
   # A safety check to prevent accidental open-sourcing of intellectual property :)
-  errcho  "Source domain (${source_domain}) does not match destination domain (${destination_domain})."
+  log_warn "⚠️  Source domain (${source_domain}) does not match destination domain (${destination_domain})."
   # shellcheck disable=SC2162
   read -p "Continue (y/N)?" _choice
   case "${_choice}" in
@@ -1069,10 +1139,24 @@ log "DESTINATION PROJECT OWNER ==> ${destination_owner}"
 log "DESTINATION PROJECT NAME ==> ${destination_project}"
 log "DESTINATION PROJECT URI ==> ${destination_uri}"
 
+# Run pre-flight checks unless skipped
+# This must happen AFTER URL parsing (so destination_owner/project are available)
+# but BEFORE temp workspace creation (so we fail fast before expensive operations)
+if [[ "${SKIP_PREFLIGHT}" != "true" ]] && [[ "${DRY_RUN}" != "true" ]]; then
+  if ! preflight_checks; then
+    exit 1
+  fi
+fi
+
+log_info "🚀 Starting gitmux sync..."
+log_info "   📦 Source: ${source_repository}"
+log_info "   📥 Destination: ${destination_repository}"
+
 gitmux_TMP_WORKSPACE=$(mktemp -t 'gitmux-XXXXXX' -d || errxit "Failed to create tmpdir.")
 log "Working in tmpdir ${gitmux_TMP_WORKSPACE}"
 _pushd "${gitmux_TMP_WORKSPACE}"
 _GITDIR="tmp-${source_owner}_${source_project}"
+log_info "📥 Cloning source repository..."
 git clone "${source_repository}" "${_GITDIR}"
 _pushd "${_GITDIR}"
 git fetch --all --tags
@@ -1124,14 +1208,14 @@ process_single_mapping() {
   local _mapping_idx="$3"
   local _mapping_total="$4"
 
-  log_info "Processing mapping $((_mapping_idx + 1))/${_mapping_total}: '${_source_path:-<root>}' -> '${_dest_path:-<root>}'"
+  log_info "📁 Processing mapping $((_mapping_idx + 1))/${_mapping_total}: '${_source_path:-<root>}' → '${_dest_path:-<root>}'"
 
   # File reorganization: if destination path is specified, restructure files
   if [[ -n "$_dest_path" ]] && ! [[ "${_dest_path}" == '/' ]]; then
     log "Destination path ( ${_dest_path} ) was specified. Do a tango."
     # ( Must use an intermediate temporary directory )
     if ! mkdir -p __tmp__; then
-      errcho "Failed to create temporary directory __tmp__"
+      log_error "Failed to create temporary directory __tmp__"
       return 1
     fi
     log "Temp dir created."
@@ -1140,7 +1224,7 @@ process_single_mapping() {
       log "Moving files from ${_source_path} into tempdir."
       # Validate source path exists and has content
       if [[ ! -d "${_source_path}" ]]; then
-        errcho "Source path '${_source_path}' does not exist"
+        log_error "Source path '${_source_path}' does not exist"
         return 1
       fi
       # Check if source has files (use nullglob to handle empty case)
@@ -1148,18 +1232,18 @@ process_single_mapping() {
       local _src_files=("${_source_path}"/*)
       shopt -u nullglob
       if [[ ${#_src_files[@]} -eq 0 ]]; then
-        errcho "Source path '${_source_path}' is empty - nothing to migrate"
+        log_error "Source path '${_source_path}' is empty - nothing to migrate"
         return 1
       fi
       local _mv_output
       if ! _mv_output=$(git mv "${_src_files[@]}" __tmp__ 2>&1); then
-        errcho "Failed to move files from '${_source_path}' to temp directory"
-        errcho "Git error: ${_mv_output}"
+        log_error "Failed to move files from '${_source_path}' to temp directory"
+        log_debug "Git error: ${_mv_output}"
         return 1
       fi
       log "Creating destination path ${_source_path}/${_dest_path}."
       if ! mkdir -p "${_source_path}/${_dest_path}"; then
-        errcho "Failed to create destination path '${_source_path}/${_dest_path}'"
+        log_error "Failed to create destination path '${_source_path}/${_dest_path}'"
         return 1
       fi
       log "Moving content from tempdir into ${_source_path}/${_dest_path}."
@@ -1167,8 +1251,8 @@ process_single_mapping() {
       local _tmp_files=(__tmp__/*)
       shopt -u nullglob
       if ! _mv_output=$(git mv "${_tmp_files[@]}" "${_source_path}/${_dest_path}/" 2>&1); then
-        errcho "Failed to move files from temp directory to '${_source_path}/${_dest_path}/'"
-        errcho "Git error: ${_mv_output}"
+        log_error "Failed to move files from temp directory to '${_source_path}/${_dest_path}/'"
+        log_debug "Git error: ${_mv_output}"
         return 1
       fi
       log "Cleaning up tempdir."
@@ -1176,7 +1260,7 @@ process_single_mapping() {
         log_warn "Failed to clean up temp directory __tmp__"
       fi
       if ! git add --update "${_source_path:-.}"; then
-        errcho "Failed to stage updated files in '${_source_path:-.}'"
+        log_error "Failed to stage updated files in '${_source_path:-.}'"
         return 1
       fi
     else
@@ -1197,8 +1281,8 @@ process_single_mapping() {
         if [[ "$_item" != "__tmp__" ]]; then
           if ! _mv_output=$(git mv "$_item" __tmp__/ 2>&1); then
             shopt -u nullglob
-            errcho "Failed to move '$_item' to temp directory"
-            errcho "Git error: ${_mv_output}"
+            log_error "Failed to move '$_item' to temp directory"
+            log_debug "Git error: ${_mv_output}"
             return 1
           fi
           _moved_count=$((_moved_count + 1))
@@ -1206,11 +1290,11 @@ process_single_mapping() {
       done
       shopt -u nullglob
       if [[ $_moved_count -eq 0 ]]; then
-        errcho "Source repository appears empty - nothing to migrate"
+        log_error "Source repository appears empty - nothing to migrate"
         return 1
       fi
       if ! mkdir -p "${_dest_path}"; then
-        errcho "Failed to create destination path '${_dest_path}'"
+        log_error "Failed to create destination path '${_dest_path}'"
         return 1
       fi
       # Move files from temp to destination (use array to handle nullglob properly)
@@ -1218,19 +1302,19 @@ process_single_mapping() {
       local _tmp_files=(__tmp__/*)
       shopt -u nullglob
       if ! _mv_output=$(git mv "${_tmp_files[@]}" "${_dest_path}/" 2>&1); then
-        errcho "Failed to move files from temp directory to '${_dest_path}/'"
-        errcho "Git error: ${_mv_output}"
+        log_error "Failed to move files from temp directory to '${_dest_path}/'"
+        log_debug "Git error: ${_mv_output}"
         return 1
       fi
       # Trying to ensure we get all the commit history...
       if ! git add --update .; then
-        errcho "Failed to stage updated files"
+        log_error "Failed to stage updated files"
         return 1
       fi
       log "Cleaning up ${_rname}"
       if ! _mv_output=$(git rm -f "${_dest_path}/${_rname}" 2>&1); then
         log_warn "Failed to clean up temporary file '${_dest_path}/${_rname}'"
-        errcho "Git error: ${_mv_output}"
+        log_debug "Git error: ${_mv_output}"
       fi
       log "Cleaning up tempdir."
       if [[ -d __tmp__ ]] && ! rm -rf __tmp__; then
@@ -1240,7 +1324,7 @@ process_single_mapping() {
   fi
 
   if ! git commit --allow-empty -m "Bring in changes from ${source_uri} ${GIT_BRANCH} [mapping $((_mapping_idx + 1))/${_mapping_total}]"; then
-    errcho "Failed to commit file reorganization for mapping $((_mapping_idx + 1))"
+    log_error "Failed to commit file reorganization for mapping $((_mapping_idx + 1))"
     return 1
   fi
 
@@ -1313,8 +1397,8 @@ process_single_mapping() {
     # SAFETY: eval is safe here because all user-provided values (author/committer names/emails)
     # are validated by _validate_safe_string() which rejects shell metacharacters.
     if ! eval "${_filter_branch_cmd}"; then
-      errcho "git filter-branch failed for mapping $((_mapping_idx + 1))"
-      errcho "Command was: ${_filter_branch_cmd}"
+      log_error "git filter-branch failed for mapping $((_mapping_idx + 1))"
+      log_debug "Command was: ${_filter_branch_cmd}"
       return 1
     fi
   else
@@ -1323,13 +1407,16 @@ process_single_mapping() {
     log "Running: ${_filter_branch_cmd}"
     # SAFETY: eval is safe here - see comment above regarding input validation
     if ! eval "${_filter_branch_cmd}"; then
-      errcho "git filter-branch failed for mapping $((_mapping_idx + 1))"
-      errcho "Command was: ${_filter_branch_cmd}"
+      log_error "git filter-branch failed for mapping $((_mapping_idx + 1))"
+      log_debug "Command was: ${_filter_branch_cmd}"
       return 1
     fi
   fi
 
-  log "git filter-branch completed for mapping $((_mapping_idx + 1))."
+  # Count commits in the filtered history
+  local _commit_count
+  _commit_count=$(git rev-list --count HEAD 2>/dev/null || echo "?")
+  log_info "✨ Filter completed for mapping $((_mapping_idx + 1)) (${_commit_count} commits preserved)"
   log "$(git status)"
   return 0
 }
@@ -1422,7 +1509,7 @@ fi
 INTEGRATION_BRANCH="__gitmux_integration__"
 MAPPING_COUNT=${#PATH_MAPPINGS[@]}
 
-log_info "Processing ${MAPPING_COUNT} path mapping(s)..."
+log_info "📂 Processing ${MAPPING_COUNT} path mapping(s)..."
 
 for ((mapping_idx = 0; mapping_idx < MAPPING_COUNT; mapping_idx++)); do
   # Parse the current mapping
@@ -1443,7 +1530,7 @@ for ((mapping_idx = 0; mapping_idx < MAPPING_COUNT; mapping_idx++)); do
     if ! git checkout -b "${INTEGRATION_BRANCH}"; then
       errxit "Failed to create integration branch '${INTEGRATION_BRANCH}'"
     fi
-    log_info "Created integration branch: ${INTEGRATION_BRANCH}"
+    log_info "🌿 Created integration branch: ${INTEGRATION_BRANCH}"
   else
     # Subsequent mappings: reset to original, process on temp branch, merge
     log "Processing mapping $(( mapping_idx + 1 )) on temporary branch..."
@@ -1489,7 +1576,7 @@ for ((mapping_idx = 0; mapping_idx < MAPPING_COUNT; mapping_idx++)); do
       # This is appropriate because each mapping targets different destination paths,
       # so conflicts indicate the temp branch has the desired new content.
       # Note: This may overwrite integration branch changes to conflicting files.
-      log_info "Merge conflict detected for mapping $(( mapping_idx + 1 )). Resolving with --theirs strategy..."
+      log_info "⚡ Merge conflict detected for mapping $(( mapping_idx + 1 )). Resolving with --theirs strategy..."
       if ! _merge_output=$(git checkout --theirs . 2>&1); then
         log_error "Failed to checkout --theirs. Complex conflict requires manual resolution."
         log_error "Git error: ${_merge_output}"
@@ -1508,20 +1595,20 @@ for ((mapping_idx = 0; mapping_idx < MAPPING_COUNT; mapping_idx++)); do
         log_error "Git error: ${_merge_output}"
         errxit "Merge resolution failed"
       fi
-      log_info "Merge conflict resolved using --theirs strategy."
+      log_info "✅ Merge conflict resolved using --theirs strategy."
     fi
 
     # Clean up temp branch
     _cleanup_output=""
     if ! _cleanup_output=$(git branch -D "${TEMP_BRANCH}" 2>&1); then
       log_warn "Failed to delete temporary branch '${TEMP_BRANCH}'"
-      errcho "Git error: ${_cleanup_output}"
+      log_debug "Git error: ${_cleanup_output}"
     fi
     log "Merged and cleaned up temporary branch."
   fi
 done
 
-log_info "All ${MAPPING_COUNT} mapping(s) processed successfully."
+log_info "✅ All ${MAPPING_COUNT} mapping(s) processed successfully!"
 log "$(git status)"
 log "Adding 'destination' remote --> ${destination_repository}"
 git remote add destination "${destination_repository}"
@@ -1533,11 +1620,11 @@ fi
 
 # Rename integration branch to the PR branch name
 if ! git branch -m "${INTEGRATION_BRANCH}" "${DESTINATION_PR_BRANCH_NAME}"; then
-  errcho "Failed to rename integration branch to '${DESTINATION_PR_BRANCH_NAME}'"
-  errcho "A branch with this name may already exist from a previous run."
+  log_error "Failed to rename integration branch to '${DESTINATION_PR_BRANCH_NAME}'"
+  log_error "A branch with this name may already exist from a previous run."
   errxit "Branch rename failed"
 fi
-log_info "Renamed integration branch to: ${DESTINATION_PR_BRANCH_NAME}"
+log_info "🏷️  Renamed integration branch to: ${DESTINATION_PR_BRANCH_NAME}"
 log "Status after processing mappings:"
 log "$(git status)"
 # Must exist in order to set-upstream-to.
@@ -1545,14 +1632,14 @@ log "$(git status)"
 
 
 # Fetch commits from the destination remote
-log "Attempting to fetch remote 'destination' --> ${destination_repository}"
+log_info "🔄 Fetching destination remote..."
 if ! _repo_existence="$(git fetch destination 2>&1)"; then
   log "Destination repository (${destination_repository}) doesn't exist. If -c supplied, create it"
   if [ "${CREATE_NEW_REPOSITORY}" = true ] && [[ "${_repo_existence}" =~ "Repository not found" ]]; then
 
     ########## <GH CREATE REPO> ################
     # `gh repo create` runs from inside a git repository. (weird)
-    log "gh is creating your new repository now! ( ${destination_owner}/${destination_project} )"
+    log_info "🆕 Creating new repository: ${destination_owner}/${destination_project}"
     NEW_REPOSITORY_DESCRIPTION="New repository from ${source_url} (${MAPPING_COUNT} path mapping(s))"
     # gh repo create [<name>] [flags]
     TMPGHCREATEWORKDIR=$(mktemp -t 'gitmux-gh-create-destination-XXXXXX' -d || errxit "Failed to create tmpdir.")
@@ -1632,59 +1719,60 @@ perform_rebase () {
  log "Rebase options --> ' ${REBASE_OPTIONS} '"
  # shellcheck disable=SC2086
   if [[ $(echo " ${REBASE_OPTIONS} " | sed -E 's/.*(\ -i\ |\ --interactive\ ).*/INTERACTIVE/') == "INTERACTIVE" ]]; then
-    echo "Interactive rebase detected."
+    log_info "🎛️  Interactive rebase detected."
     git rebase "${REBASE_OPTIONS}" "destination/${destination_branch}"
-    log_info "Rebase completed successfully."
-    echo "After rebasing, this might be useful: \`git push destination ${DESTINATION_PR_BRANCH_NAME}\`"
-    echo "Navigate to the temp workspace at ${_WORKSPACE} to complete the workflow."
-    echo "cd ${_WORKSPACE}"
+    log_info "✅ Rebase completed successfully!"
+    log_info "📋 After rebasing, you may want to run:"
+    log_info "   git push destination ${DESTINATION_PR_BRANCH_NAME}"
+    log_info "📂 Navigate to the temp workspace to complete the workflow:"
+    log_info "   cd ${_WORKSPACE}"
   elif ! output="$(git rebase ${REBASE_OPTIONS} "destination/${destination_branch}" 2>&1)"; then
     # Handle rebase failures: check for common error patterns and attempt recovery
     if [[ "${output}" =~ "invalid upstream" ]]; then
-      errcho "${output}"
+      log_error "${output}"
       errxit "Invalid upstream. Does '${destination_branch}' exist in '${destination_repository}'?"
     elif [[ "${output}" =~ ^fatal ]]; then
-      errcho '📛 Something went wrong during rebase.'
-      errcho "${output}"
+      log_error '📛 Something went wrong during rebase.'
+      log_debug "${output}"
       return 1
     fi
-    errcho "${output}"
-    errcho "Rebase incomplete, trying to --continue..."
+    log_debug "${output}"
+    log_warn "⚠️  Rebase incomplete, trying to --continue..."
     n=1
     while (( n < MAX_RETRIES )) && ! output="$(git rebase --continue 2>&1)";do
-      errcho "_______________________________________________"
-      errcho "${output}"
+      log_debug "───────────────────────────────────────────────"
+      log_debug "${output}"
       if [[ "${output}" =~ "needs merge" ]]; then
-        echo "Renamed/unchanged files need merge, using \`git add --all\`"
+        log_info "🔀 Renamed/unchanged files need merge, using git add --all"
         export GIT_EDITOR=true
         git add --all
       elif [[ "${output}" =~ "If you wish to commit it anyway" ]]; then
-        echo "Committing anyway with \`git commit --allow-empty --no-edit\`"
+        log_info "📝 Committing anyway with git commit --allow-empty --no-edit"
         git commit --allow-empty --no-edit
       elif [[ "${output}" =~ ^fatal ]]; then
-        errcho '📛 Something went wrong during rebase.'
-        errcho "${output}"
+        log_error '📛 Something went wrong during rebase.'
+        log_debug "${output}"
         return 1
       fi
-      errcho "[${n}] Trying to --continue again..."
+      log_warn "🔄 [${n}/${MAX_RETRIES}] Trying to --continue again..."
       (( n += 1 ))
       git rebase --continue && break
-      errcho "_______________________________________________"
+      log_debug "───────────────────────────────────────────────"
     done
     if (( n > MAX_RETRIES )); then
-      errcho "Max retries exceeded on rebase. Aborting."
+      log_error "❌ Max retries exceeded on rebase. Aborting."
       git rebase --abort
-      errcho "${output}"
+      log_debug "${output}"
       return 1
     fi
 
-    log_info "Pushing to branch ${DESTINATION_PR_BRANCH_NAME}"
+    log_info "🚀 Pushing to branch ${DESTINATION_PR_BRANCH_NAME}..."
     git push --force-with-lease --tags destination
     git push --follow-tags --progress --atomic --verbose --force-with-lease destination "${DESTINATION_PR_BRANCH_NAME}"
   else
     # rebase in elif condition succeeded
-    log_info "Rebase completed successfully."
-    log_info "Pushing to branch ${DESTINATION_PR_BRANCH_NAME}"
+    log_info "✅ Rebase completed successfully!"
+    log_info "🚀 Pushing to branch ${DESTINATION_PR_BRANCH_NAME}..."
     git push --force-with-lease --tags destination
     git push --follow-tags --progress --atomic --verbose --force-with-lease destination "${DESTINATION_PR_BRANCH_NAME}"
   fi
@@ -1784,8 +1872,7 @@ PR_DESCRIPTION=$(printf "%s\n" \
 )
 
 if _cmd_exists gh && [ "${SUBMIT_PR}" = true ]; then
-  # shellcheck disable=SC2016
-  echo '`gh` is installed. Submitting PR'
+  log_info "📤 Submitting pull request..."
   gh pr --repo "${destination_domain}/${destination_owner}/${destination_project}" \
     create \
     --title "${PR_TITLE}" \
@@ -1794,9 +1881,11 @@ if _cmd_exists gh && [ "${SUBMIT_PR}" = true ]; then
     --base "${destination_branch}" \
     --head "${destination_owner}:${DESTINATION_PR_BRANCH_NAME}"
 else
-  errcho "Please manually submit PR for branch ${DESTINATION_PR_BRANCH_NAME} to ${destination_repository}"
-  errcho "auto-generated pull request description:" "" "${PR_DESCRIPTION}"
+  log_info "📋 Please manually submit PR for branch ${DESTINATION_PR_BRANCH_NAME} to ${destination_repository}"
+  log_info "Auto-generated pull request description:"
+  echo "${PR_DESCRIPTION}" >&2
 fi
 
+log_info "🎉 gitmux sync complete!"
 
 _popd && _popd && cleanup

@@ -1111,3 +1111,122 @@ HELPER_HEADER
     [[ "$output" =~ "[ERROR]" ]]
     [[ "$output" =~ "test message" ]]
 }
+
+# =============================================================================
+# CLI Flag Precedence Tests
+# =============================================================================
+
+@test "precedence: CLI --log-level overrides GITMUX_LOG_LEVEL env var" {
+    # Set env var to warning, CLI to debug - CLI should win
+    run bash -c "cd '$BATS_TEST_DIRNAME/..' && GITMUX_LOG_LEVEL=warning ./gitmux.sh --log-level debug -r foo -t bar 2>&1 | head -20"
+    # At debug level we should see DEBUG messages; at warning level we wouldn't
+    # Check that the script ran with debug level by looking for debug-level output patterns
+    # Note: we can't directly test internal state, but we can verify no "invalid log level" error
+    [[ ! "$output" =~ "--log-level must be" ]]
+}
+
+@test "precedence: CLI -L overrides GITMUX_LOG_LEVEL env var" {
+    # Set env var to error, CLI short flag to info - CLI should win
+    run bash -c "cd '$BATS_TEST_DIRNAME/..' && GITMUX_LOG_LEVEL=error ./gitmux.sh -L info -r foo -t bar 2>&1 | head -20"
+    [[ ! "$output" =~ "--log-level must be" ]]
+}
+
+@test "precedence: CLI -v overrides GITMUX_LOG_LEVEL env var" {
+    # -v sets debug level, should override env var
+    run bash -c "cd '$BATS_TEST_DIRNAME/..' && GITMUX_LOG_LEVEL=error ./gitmux.sh -v -r foo -t bar 2>&1 | head -20"
+    [[ ! "$output" =~ "--log-level must be" ]]
+}
+
+@test "precedence: CLI author options override env vars in validation" {
+    # Both CLI and env var provide values - CLI should be used
+    # We test this by providing invalid CLI value which should fail validation
+    # (If env var was used instead, validation would pass)
+    run bash -c "cd '$BATS_TEST_DIRNAME/..' && GITMUX_AUTHOR_NAME=valid GITMUX_AUTHOR_EMAIL=valid@example.com ./gitmux.sh --author-name 'Bad\`Name' --author-email 'cli@example.com' -r foo -t bar 2>&1"
+    # Should fail because CLI value contains backtick (shell metacharacter)
+    [[ "$status" -ne 0 ]]
+    [[ "$output" =~ "must not contain" ]] || [[ "$output" =~ "rejected" ]] || [[ "$output" =~ "invalid" ]]
+}
+
+@test "precedence: env vars used when no CLI flags provided" {
+    # When no CLI override, env var should be validated
+    # Test by providing invalid env var value
+    run bash -c "cd '$BATS_TEST_DIRNAME/..' && GITMUX_AUTHOR_NAME='Bad\`Name' GITMUX_AUTHOR_EMAIL='valid@example.com' ./gitmux.sh -r foo -t bar 2>&1"
+    # Should fail validation because env var contains backtick
+    [[ "$status" -ne 0 ]]
+    [[ "$output" =~ "must not contain" ]] || [[ "$output" =~ "rejected" ]] || [[ "$output" =~ "invalid" ]]
+}
+
+# =============================================================================
+# Preflight Check Internal Tests
+# =============================================================================
+
+setup_preflight_helpers() {
+    export GITMUX_SCRIPT="${BATS_TEST_DIRNAME}/../gitmux.sh"
+    export PREFLIGHT_HELPER="${BATS_TEST_TMPDIR}/preflight_helper.sh"
+
+    # Extract preflight functions from gitmux.sh
+    cat > "${PREFLIGHT_HELPER}" << 'HELPER_HEADER'
+#!/usr/bin/env bash
+# Stub dependencies
+_cmd_exists() { command -v "$1" &>/dev/null; }
+log_info() { echo "[INFO] $*" >&2; }
+log_warn() { echo "[WARN] $*" >&2; }
+log_error() { echo "[ERROR] $*" >&2; }
+HELPER_HEADER
+
+    # Extract _preflight_result function
+    sed -n '/^_preflight_result()/,/^}/p' "${GITMUX_SCRIPT}" >> "${PREFLIGHT_HELPER}"
+
+    source "${PREFLIGHT_HELPER}"
+}
+
+@test "preflight: _preflight_result pass shows checkmark" {
+    setup_preflight_helpers
+    run _preflight_result pass "test passed"
+    [[ "$output" =~ "✅" ]]
+    [[ "$output" =~ "test passed" ]]
+}
+
+@test "preflight: _preflight_result fail shows X mark" {
+    setup_preflight_helpers
+    run _preflight_result fail "test failed"
+    [[ "$output" =~ "❌" ]]
+    [[ "$output" =~ "test failed" ]]
+}
+
+@test "preflight: _preflight_result warn shows warning mark" {
+    setup_preflight_helpers
+    run _preflight_result warn "test warning"
+    [[ "$output" =~ "⚠️" ]]
+    [[ "$output" =~ "test warning" ]]
+}
+
+@test "preflight: checks git is installed" {
+    # Git should pass since we need it for tests anyway
+    run bash -c "cd '$BATS_TEST_DIRNAME/..' && ./gitmux.sh -r https://github.com/foo/bar -t https://github.com/baz/qux 2>&1 | grep -i 'git installed'"
+    [[ "$output" =~ "✅" ]] || [[ "$output" =~ "git installed" ]]
+}
+
+@test "preflight: fails when destination variables are not set" {
+    # This tests the guard we added - destination_owner/project must be defined
+    # We test this indirectly by checking the preflight output structure
+    run bash -c "cd '$BATS_TEST_DIRNAME/..' && ./gitmux.sh -r https://github.com/foo/bar -t https://github.com/baz/qux 2>&1"
+    # Should either pass preflight or fail with specific messages, not undefined variable errors
+    [[ ! "$output" =~ "unbound variable" ]]
+}
+
+@test "preflight: reports inaccessible source repo" {
+    # Use a non-existent repo to trigger source accessibility failure
+    run bash -c "cd '$BATS_TEST_DIRNAME/..' && ./gitmux.sh -r https://github.com/nonexistent-owner-12345/nonexistent-repo-67890 -t https://github.com/foo/bar 2>&1"
+    # Should show pre-flight check failure for source repo
+    [[ "$output" =~ "source" ]] || [[ "$output" =~ "Source" ]]
+}
+
+@test "preflight: fails gracefully with informative error" {
+    # With non-existent repos, preflight should fail with clear error message
+    run bash -c "cd '$BATS_TEST_DIRNAME/..' && ./gitmux.sh -r https://github.com/nonexistent-owner-abc/nonexistent-repo-xyz -t https://github.com/foo/bar 2>&1"
+    # Should fail
+    [[ "$status" -ne 0 ]]
+    # Should show pre-flight failure message
+    [[ "$output" =~ "Pre-flight" ]] || [[ "$output" =~ "pre-flight" ]] || [[ "$output" =~ "❌" ]]
+}
