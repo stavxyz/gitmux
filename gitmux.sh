@@ -1561,6 +1561,231 @@ return result
   return 0
 }
 
+# Run filter-repo for multiple path mappings in a single pass.
+# This is more efficient than running filter-repo multiple times and avoids
+# the complex branching/merging logic required for multi-pass approaches.
+# Arguments:
+#   $1 - Newline-separated list of "source:dest" mappings
+# Globals read:
+#   GITMUX_AUTHOR_NAME, GITMUX_AUTHOR_EMAIL - rewrites commit author
+#   GITMUX_COAUTHOR_ACTION - controls co-author trailer removal
+# Returns:
+#   0 on success, 1 on failure
+filter_run_filter_repo_multipath() {
+  local _mappings="$1"
+  local _filter_repo_args=("--force")
+
+  # Build --path and --path-rename args for each mapping
+  while IFS= read -r mapping; do
+    [[ -z "$mapping" ]] && continue
+
+    local _src _dest
+    _src="${mapping%%:*}"
+    _dest="${mapping#*:}"
+
+    # Add --path for source (to include these files)
+    if [[ -n "$_src" ]]; then
+      _filter_repo_args+=("--path" "$_src")
+      log "Adding path filter: $_src"
+    fi
+
+    # Add --path-rename if dest differs from source
+    if [[ -n "$_src" ]] && [[ -n "$_dest" ]] && [[ "$_src" != "$_dest" ]]; then
+      _filter_repo_args+=("--path-rename" "${_src}:${_dest}")
+      log "Adding path rename: $_src -> $_dest"
+    elif [[ -z "$_src" ]] && [[ -n "$_dest" ]]; then
+      # No source but dest specified - move everything to subdirectory
+      _filter_repo_args+=("--to-subdirectory-filter" "$_dest")
+      log "Adding to-subdirectory-filter: $_dest"
+    fi
+  done <<< "$_mappings"
+
+  # Handle author/committer rewrite using name/email callbacks
+  if [[ -n "$GITMUX_AUTHOR_NAME" ]]; then
+    _filter_repo_args+=("--name-callback" "return b'${GITMUX_AUTHOR_NAME}'")
+    _filter_repo_args+=("--email-callback" "return b'${GITMUX_AUTHOR_EMAIL}'")
+    log "Author override enabled: ${GITMUX_AUTHOR_NAME} <${GITMUX_AUTHOR_EMAIL}>"
+  fi
+
+  # Handle Co-authored-by removal using message-callback
+  if [[ "$GITMUX_COAUTHOR_ACTION" == "claude" ]]; then
+    _filter_repo_args+=("--message-callback" '
+import re
+patterns = [
+    rb"Co-authored-by:\s*Claude\s+Code[^\n]*\n",
+    rb"Co-authored-by:\s*Claude\s*<[^\n]*\n",
+    rb"Co-authored-by:[^\n]*@anthropic\.com[^\n]*\n",
+    rb"Generated with[^\n]*Claude[^\n]*\n",
+]
+result = message
+for pattern in patterns:
+    result = re.sub(pattern, b"", result, flags=re.IGNORECASE)
+return result
+')
+  elif [[ "$GITMUX_COAUTHOR_ACTION" == "all" ]]; then
+    _filter_repo_args+=("--message-callback" '
+import re
+result = re.sub(rb"Co-authored-by:[^\n]*\n", b"", message, flags=re.IGNORECASE)
+result = re.sub(rb"Generated with\s*\[[^\n]*\n", b"", result, flags=re.IGNORECASE)
+return result
+')
+  fi
+
+  log "Running: git filter-repo ${_filter_repo_args[*]}"
+
+  if ! git filter-repo "${_filter_repo_args[@]}"; then
+    log_error "git filter-repo failed for multi-path operation"
+    return 1
+  fi
+
+  return 0
+}
+
+# Run filter-branch for multiple path mappings in a single pass.
+# Uses --tree-filter to process all paths in one operation.
+# Arguments:
+#   $1 - Newline-separated list of "source:dest" mappings
+# Globals read:
+#   GITMUX_AUTHOR_NAME, GITMUX_AUTHOR_EMAIL, GITMUX_COMMITTER_NAME, GITMUX_COMMITTER_EMAIL
+#   GITMUX_COAUTHOR_ACTION - controls co-author trailer removal
+# Returns:
+#   0 on success, 1 on failure
+filter_run_filter_branch_multipath() {
+  local _mappings="$1"
+
+  # Build arrays of source paths and rename operations
+  local _keep_paths=()
+  local _rename_ops=()
+
+  while IFS= read -r mapping; do
+    [[ -z "$mapping" ]] && continue
+
+    local _src _dest
+    _src="${mapping%%:*}"
+    _dest="${mapping#*:}"
+
+    if [[ -n "$_src" ]]; then
+      _keep_paths+=("$_src")
+      if [[ -n "$_dest" ]] && [[ "$_src" != "$_dest" ]]; then
+        _rename_ops+=("${_src}:${_dest}")
+      fi
+    fi
+  done <<< "$_mappings"
+
+  # Build the keep pattern for case statement
+  local _keep_pattern=""
+  for path in "${_keep_paths[@]}"; do
+    if [[ -n "$_keep_pattern" ]]; then
+      _keep_pattern="${_keep_pattern}|${path}"
+    else
+      _keep_pattern="${path}"
+    fi
+  done
+
+  # Build rename commands
+  local _rename_script=""
+  for op in "${_rename_ops[@]}"; do
+    local _src="${op%%:*}"
+    local _dest="${op#*:}"
+    _rename_script+="
+    if [ -d \"${_src}\" ]; then
+      mkdir -p \"\$(dirname \"${_dest}\")\" 2>/dev/null || true
+      mv \"${_src}\" \"${_dest}\" 2>/dev/null || true
+    fi"
+  done
+
+  # Build the complete tree-filter script
+  local _tree_filter_script="
+    # Remove everything except specified paths
+    for item in *; do
+      case \"\$item\" in
+        ${_keep_pattern}) ;;
+        .git) ;;
+        *) rm -rf \"\$item\" 2>/dev/null || true ;;
+      esac
+    done
+    ${_rename_script}
+  "
+
+  log "Tree filter script: $_tree_filter_script"
+
+  # Build env-filter for author/committer override
+  local _env_filter=""
+  if [[ -n "$GITMUX_AUTHOR_NAME" ]]; then
+    _env_filter+="export GIT_AUTHOR_NAME='${GITMUX_AUTHOR_NAME}';"
+    _env_filter+="export GIT_AUTHOR_EMAIL='${GITMUX_AUTHOR_EMAIL}';"
+  fi
+  if [[ -n "$GITMUX_COMMITTER_NAME" ]]; then
+    _env_filter+="export GIT_COMMITTER_NAME='${GITMUX_COMMITTER_NAME}';"
+    _env_filter+="export GIT_COMMITTER_EMAIL='${GITMUX_COMMITTER_EMAIL}';"
+  fi
+
+  # Build msg-filter for co-author removal
+  local _msg_filter=""
+  if [[ "$GITMUX_COAUTHOR_ACTION" == "claude" ]]; then
+    _msg_filter="sed -e '/Co-authored-by:.*[Cc]laude/d' -e '/Co-authored-by:.*@anthropic\\.com/d' -e '/Generated with.*[Cc]laude/d'"
+  elif [[ "$GITMUX_COAUTHOR_ACTION" == "all" ]]; then
+    _msg_filter="sed -e '/Co-authored-by:/d' -e '/Generated with/d'"
+  fi
+
+  # Build the filter-branch command
+  local _fb_args=("--force" "--prune-empty")
+  _fb_args+=("--tree-filter" "$_tree_filter_script")
+
+  if [[ -n "$_env_filter" ]]; then
+    _fb_args+=("--env-filter" "$_env_filter")
+  fi
+  if [[ -n "$_msg_filter" ]]; then
+    _fb_args+=("--msg-filter" "$_msg_filter")
+  fi
+
+  _fb_args+=("--" "--all")
+
+  log "Running: git filter-branch ${_fb_args[*]}"
+
+  # Suppress the filter-branch warning
+  if ! FILTER_BRANCH_SQUELCH_WARNING=1 git filter-branch "${_fb_args[@]}"; then
+    log_error "git filter-branch failed for multi-path operation"
+    return 1
+  fi
+
+  return 0
+}
+
+# Run the appropriate filter operation for multiple path mappings.
+# Arguments:
+#   $1 - Newline-separated list of "source:dest" mappings
+# Returns:
+#   0 on success, 1 on failure
+run_multipath_filter_operation() {
+  local _mappings="$1"
+  local _backend
+
+  # Cache backend selection on first call
+  if [[ -z "${_GITMUX_CACHED_BACKEND}" ]]; then
+    _GITMUX_CACHED_BACKEND="$(get_filter_backend)"
+
+    if [[ "${GITMUX_FILTER_BACKEND}" == "auto" ]] && [[ "${_GITMUX_CACHED_BACKEND}" == "filter-branch" ]]; then
+      log_info "ℹ️  Using filter-branch (install git-filter-repo for ~10x speedup)"
+    fi
+  fi
+
+  _backend="${_GITMUX_CACHED_BACKEND}"
+
+  case "$_backend" in
+    filter-repo)
+      filter_run_filter_repo_multipath "$_mappings"
+      ;;
+    filter-branch)
+      filter_run_filter_branch_multipath "$_mappings"
+      ;;
+    *)
+      log_error "Unknown filter backend: $_backend"
+      return 1
+      ;;
+  esac
+}
+
 # Cached filter backend - set once at runtime
 _GITMUX_CACHED_BACKEND=""
 
@@ -1854,112 +2079,65 @@ if [[ "${DRY_RUN}" == "true" ]]; then
 fi
 
 # Process all path mappings
-# For multi-path migrations, we:
-# 1. Process the first mapping on the current branch
-# 2. For subsequent mappings, reset to original state, process on a temp branch, then merge
+# Single-pass approach: process all mappings in one filter operation
 INTEGRATION_BRANCH="__gitmux_integration__"
 MAPPING_COUNT=${#PATH_MAPPINGS[@]}
 
 log_info "📂 Processing ${MAPPING_COUNT} path mapping(s)..."
 
-for ((mapping_idx = 0; mapping_idx < MAPPING_COUNT; mapping_idx++)); do
-  # Parse the current mapping
-  if ! parse_path_mapping "${PATH_MAPPINGS[mapping_idx]}"; then
-    errxit "Failed to parse path mapping at index ${mapping_idx}: ${PATH_MAPPINGS[mapping_idx]}"
+if [[ $MAPPING_COUNT -gt 1 ]]; then
+  # Multi-path: use single-pass approach for efficiency
+  log_info "Using single-pass multi-path processing..."
+
+  # Build newline-separated mappings string
+  _all_mappings=""
+  for mapping in "${PATH_MAPPINGS[@]}"; do
+    _all_mappings+="${mapping}"$'\n'
+  done
+
+  # Log the mappings being processed
+  for ((i = 0; i < MAPPING_COUNT; i++)); do
+    if ! parse_path_mapping "${PATH_MAPPINGS[i]}"; then
+      errxit "Failed to parse path mapping at index ${i}: ${PATH_MAPPINGS[i]}"
+    fi
+    log_info "📁 Mapping $((i + 1))/${MAPPING_COUNT}: '${PARSED_SOURCE:-<root>}' → '${PARSED_DEST:-<root>}'"
+  done
+
+  # Run single-pass filter operation
+  if ! run_multipath_filter_operation "$_all_mappings"; then
+    errxit "Failed to process multi-path mappings"
+  fi
+
+  # Count commits in the filtered history
+  _commit_count=""
+  if ! _commit_count=$(git rev-list --count HEAD 2>&1); then
+    _commit_count="?"
+  fi
+  log_info "✨ Filter completed (${_commit_count} commits preserved)"
+
+  # Create integration branch
+  if ! git checkout -b "${INTEGRATION_BRANCH}"; then
+    errxit "Failed to create integration branch '${INTEGRATION_BRANCH}'"
+  fi
+  log_info "🌿 Created integration branch: ${INTEGRATION_BRANCH}"
+else
+  # Single path: use existing process_single_mapping logic
+  if ! parse_path_mapping "${PATH_MAPPINGS[0]}"; then
+    errxit "Failed to parse path mapping: ${PATH_MAPPINGS[0]}"
   fi
   current_source="$PARSED_SOURCE"
   current_dest="$PARSED_DEST"
 
-  if [[ $mapping_idx -eq 0 ]]; then
-    # First mapping: process directly on current branch
-    log "Processing first mapping on main branch..."
-    if ! process_single_mapping "$current_source" "$current_dest" "$mapping_idx" "$MAPPING_COUNT"; then
-      errxit "Failed to process mapping $(( mapping_idx + 1 )): '${current_source:-<root>}' -> '${current_dest:-<root>}'"
-    fi
-
-    # Create integration branch from the result
-    if ! git checkout -b "${INTEGRATION_BRANCH}"; then
-      errxit "Failed to create integration branch '${INTEGRATION_BRANCH}'"
-    fi
-    log_info "🌿 Created integration branch: ${INTEGRATION_BRANCH}"
-  else
-    # Subsequent mappings: reset to original, process on temp branch, merge
-    log "Processing mapping $(( mapping_idx + 1 )) on temporary branch..."
-
-    # Create a temp branch for this mapping
-    TEMP_BRANCH="__gitmux_mapping_${mapping_idx}__"
-
-    # Reset to original state
-    if ! git checkout --force "${ORIGINAL_HEAD}"; then
-      errxit "Failed to checkout original HEAD '${ORIGINAL_HEAD}'"
-    fi
-    if ! git checkout -b "${TEMP_BRANCH}"; then
-      errxit "Failed to create temporary branch '${TEMP_BRANCH}'"
-    fi
-
-    # Remove filter-branch backup refs to allow re-running filter-branch
-    # Use process substitution to avoid subshell issues with pipelines
-    _ref_delete_output=""
-    if refs_to_delete=$(git for-each-ref --format='%(refname)' refs/original/ 2>&1); then
-      if [[ -n "$refs_to_delete" ]]; then
-        while IFS= read -r ref; do
-          if [[ -n "$ref" ]] && ! _ref_delete_output=$(git update-ref -d "$ref" 2>&1); then
-            log_warn "Failed to delete backup ref: $ref"
-            log_debug "Error: ${_ref_delete_output}"
-          fi
-        done <<< "$refs_to_delete"
-      fi
-    fi
-
-    # Process this mapping
-    if ! process_single_mapping "$current_source" "$current_dest" "$mapping_idx" "$MAPPING_COUNT"; then
-      errxit "Failed to process mapping $(( mapping_idx + 1 )): '${current_source:-<root>}' -> '${current_dest:-<root>}'"
-    fi
-
-    # Merge into integration branch
-    if ! git checkout "${INTEGRATION_BRANCH}"; then
-      errxit "Failed to checkout integration branch '${INTEGRATION_BRANCH}'"
-    fi
-    log "Merging mapping $(( mapping_idx + 1 )) into integration branch..."
-
-    # Use --allow-unrelated-histories since each filter-branch creates independent history
-    _merge_output=""
-    if ! git merge --allow-unrelated-histories -m "Merge mapping $(( mapping_idx + 1 )): ${current_source:-<root>} -> ${current_dest:-<root>}" "${TEMP_BRANCH}"; then
-      # Merge conflict: auto-resolve by preferring incoming changes (theirs)
-      # This is appropriate because each mapping targets different destination paths,
-      # so conflicts indicate the temp branch has the desired new content.
-      # Note: This may overwrite integration branch changes to conflicting files.
-      log_info "⚡ Merge conflict detected for mapping $(( mapping_idx + 1 )). Resolving with --theirs strategy..."
-      if ! _merge_output=$(git checkout --theirs . 2>&1); then
-        log_error "Failed to checkout --theirs. Complex conflict requires manual resolution."
-        log_error "Git error: ${_merge_output}"
-        log_error "Workspace: ${_WORKSPACE}"
-        errxit "Merge resolution failed"
-      fi
-      # Use 'git add .' to stage all changes including new files from --theirs
-      # (git add --update would miss new files, causing incomplete merges)
-      if ! _merge_output=$(git add . 2>&1); then
-        log_error "Failed to stage resolved files."
-        log_error "Git error: ${_merge_output}"
-        errxit "Merge resolution failed"
-      fi
-      if ! _merge_output=$(git commit -m "Merge mapping $(( mapping_idx + 1 )): ${current_source:-<root>} -> ${current_dest:-<root>}" 2>&1); then
-        log_error "Failed to commit merge resolution."
-        log_error "Git error: ${_merge_output}"
-        errxit "Merge resolution failed"
-      fi
-      log_info "✅ Merge conflict resolved using --theirs strategy."
-    fi
-
-    # Clean up temp branch
-    _cleanup_output=""
-    if ! _cleanup_output=$(git branch -D "${TEMP_BRANCH}" 2>&1); then
-      log_warn "Failed to delete temporary branch '${TEMP_BRANCH}'"
-      log_debug "Git error: ${_cleanup_output}"
-    fi
-    log "Merged and cleaned up temporary branch."
+  if ! process_single_mapping "$current_source" "$current_dest" 0 1; then
+    errxit "Failed to process mapping: '${current_source:-<root>}' -> '${current_dest:-<root>}'"
   fi
-done
+
+  # Create integration branch from the result
+  if ! git checkout -b "${INTEGRATION_BRANCH}"; then
+    errxit "Failed to create integration branch '${INTEGRATION_BRANCH}'"
+  fi
+  log_info "🌿 Created integration branch: ${INTEGRATION_BRANCH}"
+fi
 
 log_info "✅ All ${MAPPING_COUNT} mapping(s) processed successfully!"
 log "$(git status)"

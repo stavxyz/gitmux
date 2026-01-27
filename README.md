@@ -411,21 +411,6 @@ pip install git-filter-repo
 ./gitmux.sh -r source -t dest --filter-backend filter-repo
 ```
 
-### Limitations
-
-**Multi-path mappings**: When using multiple `-m` flags for path mappings (e.g., `-m src:lib -m tests:pkg/tests`), filter-branch is required. The filter-repo backend rewrites history in a way that's incompatible with processing multiple mappings sequentially. Set `GITMUX_FILTER_BACKEND=filter-branch` when using multiple path mappings.
-
-```bash
-# Multi-path example (requires filter-branch)
-GITMUX_FILTER_BACKEND=filter-branch ./gitmux.sh \
-  -r source -t dest \
-  -m 'src:packages/app/src' \
-  -m 'tests:packages/app/tests'
-
-# Auto-detect (default)
-./gitmux.sh -r source -t dest --filter-backend auto
-```
-
 Or set via environment: `export GITMUX_FILTER_BACKEND=filter-repo`
 
 ## FAQ

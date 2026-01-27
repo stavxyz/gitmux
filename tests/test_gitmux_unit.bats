@@ -837,11 +837,9 @@ HELPER_HEADER
     git commit -m "Add src and tests directories"
     git push origin main
 
-    # Run gitmux with multiple -m flags
-    # NOTE: Multi-path mappings require filter-branch backend because filter-repo
-    # rewrites history in a way that's incompatible with processing multiple mappings
+    # Run gitmux with multiple -m flags (auto-detects backend)
     cd "$BATS_TEST_DIRNAME/.." || return 1
-    GITMUX_FILTER_BACKEND=filter-branch run bash -c "./gitmux.sh \
+    run bash -c "./gitmux.sh \
         -r '$E2E_TEST_DIR/source' \
         -t '$E2E_TEST_DIR/dest' \
         -b main \
