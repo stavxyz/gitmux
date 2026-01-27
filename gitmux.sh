@@ -1428,6 +1428,109 @@ filter_run_filter_branch() {
   return 0
 }
 
+# Run filter-repo with the configured options.
+# This is the modern implementation - faster and recommended.
+# Arguments:
+#   $1 - source_path (subdirectory to filter, empty for root)
+#   $2 - dest_path (destination path for reorganization)
+#   $3 - mapping_idx (index for logging)
+# Globals read:
+#   GITMUX_AUTHOR_NAME, GITMUX_AUTHOR_EMAIL
+#   GITMUX_COMMITTER_NAME, GITMUX_COMMITTER_EMAIL
+#   GITMUX_COAUTHOR_ACTION
+#   rev_list_files
+# Returns:
+#   0 on success, 1 on failure
+filter_run_filter_repo() {
+  local _source_path="$1"
+  local _dest_path="$2"
+  local _mapping_idx="$3"
+
+  local _filter_repo_args=("--force")
+
+  # Handle subdirectory extraction with optional path rename
+  if [ -n "${_source_path}" ]; then
+    if [ -n "${_dest_path}" ] && [ "${_source_path}" != "${_dest_path}" ]; then
+      # Extract source path and rename to dest path
+      _filter_repo_args+=("--path" "${_source_path}")
+      _filter_repo_args+=("--path-rename" "${_source_path}:${_dest_path}")
+    else
+      # Simple subdirectory filter
+      _filter_repo_args+=("--subdirectory-filter" "${_source_path}")
+    fi
+  elif [ -n "${_dest_path}" ]; then
+    # No source path but dest path - move everything to subdirectory
+    _filter_repo_args+=("--to-subdirectory-filter" "${_dest_path}")
+  fi
+
+  # Handle specific file extraction (-l flag)
+  if [ -n "${rev_list_files}" ]; then
+    # Parse rev_list_files and add each path
+    # rev_list_files format: "--all -- file1 file2"
+    local _files_only
+    _files_only=$(echo "${rev_list_files}" | sed 's/.*-- //')
+    for _file in ${_files_only}; do
+      _filter_repo_args+=("--path" "${_file}")
+    done
+  fi
+
+  # Handle author/committer rewrite using mailmap
+  local _mailmap_file=""
+  if [[ -n "$GITMUX_AUTHOR_NAME" ]] || [[ -n "$GITMUX_COMMITTER_NAME" ]]; then
+    _mailmap_file=$(mktemp)
+
+    # Build mailmap entries
+    # Format: "New Name <new@email.com> <*>" to match all old emails
+    # Note: filter-repo's mailmap rewrites both author AND committer
+    if [[ -n "$GITMUX_AUTHOR_NAME" ]]; then
+      echo "${GITMUX_AUTHOR_NAME} <${GITMUX_AUTHOR_EMAIL}> <*>" >> "${_mailmap_file}"
+    fi
+
+    _filter_repo_args+=("--mailmap" "${_mailmap_file}")
+    log "Author/committer override enabled via mailmap"
+  fi
+
+  # Handle Co-authored-by removal using message-callback
+  if [[ "$GITMUX_COAUTHOR_ACTION" == "claude" ]]; then
+    _filter_repo_args+=("--message-callback" '
+import re
+# Remove Claude/Anthropic co-author lines
+patterns = [
+    rb"Co-authored-by:\s*Claude\s+Code[^\n]*\n",
+    rb"Co-authored-by:\s*Claude\s*<[^\n]*\n",
+    rb"Co-authored-by:[^\n]*@anthropic\.com[^\n]*\n",
+    rb"Generated with[^\n]*Claude[^\n]*\n",
+]
+result = message
+for pattern in patterns:
+    result = re.sub(pattern, b"", result, flags=re.IGNORECASE)
+return result
+')
+  elif [[ "$GITMUX_COAUTHOR_ACTION" == "all" ]]; then
+    _filter_repo_args+=("--message-callback" '
+import re
+# Remove all co-author lines
+result = re.sub(rb"Co-authored-by:[^\n]*\n", b"", message, flags=re.IGNORECASE)
+result = re.sub(rb"Generated with\s*\[[^\n]*\n", b"", result, flags=re.IGNORECASE)
+return result
+')
+  fi
+
+  log "Running: git filter-repo ${_filter_repo_args[*]}"
+
+  if ! git filter-repo "${_filter_repo_args[@]}"; then
+    log_error "git filter-repo failed for mapping $((_mapping_idx + 1))"
+    # Clean up mailmap if created
+    [[ -n "$_mailmap_file" ]] && rm -f "$_mailmap_file"
+    return 1
+  fi
+
+  # Clean up mailmap if created
+  [[ -n "$_mailmap_file" ]] && rm -f "$_mailmap_file"
+
+  return 0
+}
+
 # Process a single source:dest mapping.
 # Performs file reorganization and git filter-branch for one path mapping.
 # Arguments:
