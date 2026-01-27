@@ -141,54 +141,50 @@ This shows you exactly which commits would be affected and what changes would be
 
 ## Usage
 
+Run `./gitmux.sh` with no arguments to see the full help with colored output.
+
 ```
-gitmux.sh [-r SOURCE] [-t DESTINATION] [OPTIONS]
+gitmux.sh -r SOURCE -t DESTINATION [OPTIONS]
 
 Required:
-  -r <repository>     Source repository (URL or local path)
-  -t <repository>     Destination repository (URL or local path)
+  -r <url|path>              Source repository
+  -t <url|path>              Destination repository
 
-Filtering:
-  -d <path>           Extract only this subdirectory
-  -p <path>           Place content at this path in destination
-  -m <src:dest>       Map source path to destination path (repeatable)
-                      Use \: to escape literal colons in paths
-                      Cannot be combined with -d or -p
-  -l <rev-list>       Extract specific files (git rev-list format)
-                      Note: file paths with spaces are not supported
-  -g <gitref>         Source git ref (branch, tag, commit)
+Path Filtering:
+  -m <src:dest>              Map source path to destination (repeatable)
+                             Use \: for literal colons. Empty or '.' means root
+  -d <path>                  Extract only this subdirectory from source
+  -p <path>                  Place content at this path in destination
+  -g <ref>                   Source git ref: branch, tag, or commit
+  -l <rev-list>              Extract specific files (git rev-list format)
 
 Destination:
-  -b <branch>         Target branch in destination (default: trunk)
-  -c                  Create destination repo if it doesn't exist
+  -b <branch>                Target branch in destination (default: trunk)
+  -c                         Create destination repo if missing (requires gh)
 
 Rebase:
-  -X <strategy>       Rebase strategy: theirs, ours, patience (default: theirs)
-  -o <options>        Custom git rebase options
-  -i                  Interactive rebase mode
+  -X <strategy>              Strategy: theirs|ours|patience (default: theirs)
+  -o <options>               Custom git rebase options (mutex with -X)
+  -i                         Interactive rebase mode
 
-GitHub:
-  -s                  Submit PR automatically (requires gh)
-  -z <org/team>       Add team to destination repo (repeatable)
+GitHub Integration:
+  -s                         Submit PR automatically (requires gh)
+  -z <org/team>              Add team to destination repo (repeatable)
 
-Author/Committer Override:
-  -N, --author-name       Override author name (requires --author-email)
-  -E, --author-email      Override author email (requires --author-name)
-  -n, --committer-name    Override committer name (requires --committer-email)
-  -e, --committer-email   Override committer email (requires --committer-name)
-  -C, --coauthor-action   Handle Co-authored-by trailers: claude|all|keep
-                          - claude: Remove Claude/Anthropic attribution only
-                                    (default when author/committer options used)
-                          - all: Remove all Co-authored-by trailers
-                          - keep: Preserve all trailers (default otherwise)
-  -D, --dry-run           Preview changes without modifying anything
+Author Rewriting:
+  -N, --author-name <name>   Override author name for all commits
+  -E, --author-email <email> Override author email for all commits
+  -n, --committer-name       Override committer name
+  -e, --committer-email      Override committer email
+  -C, --coauthor-action      Co-authored-by: claude|all|keep
+  -D, --dry-run              Preview changes without modifying anything
 
-Logging & Diagnostics:
-  -L, --log-level     Log verbosity: debug, info, warning, error (default: info)
-  -S, --skip-preflight  Skip pre-flight validation checks (advanced use)
-  -k                  Keep temp workspace (for debugging)
-  -v                  Verbose output (sets log level to debug)
-  -h                  Show help
+Logging & Debug:
+  -L, --log-level <level>    debug|info|warning|error (default: info)
+  -S, --skip-preflight       Skip pre-flight validation checks
+  -k                         Keep temp workspace for debugging
+  -v                         Verbose output (sets log level to debug)
+  -h                         Show this help
 ```
 
 ### Environment Variables
