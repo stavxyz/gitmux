@@ -680,6 +680,17 @@ case "$GITMUX_FILTER_BACKEND" in
   *) errxit "--filter-backend must be 'auto', 'filter-repo', or 'filter-branch', got: ${GITMUX_FILTER_BACKEND}" ;;
 esac
 
+# Validate filter-repo is available when explicitly requested
+if [[ "$GITMUX_FILTER_BACKEND" == "filter-repo" ]] && ! check_filter_repo_available; then
+  log_error "git-filter-repo not found but explicitly requested via --filter-backend"
+  log_error ""
+  log_error "  📦 Install: brew install git-filter-repo (macOS)"
+  log_error "             apt install git-filter-repo (Debian/Ubuntu)"
+  log_error "             pip install git-filter-repo"
+  log_error ""
+  errxit "git-filter-repo not found"
+fi
+
 if [[ -z "$source_repository" ]]; then
   errxit "Source repository url or path (-r) is required"
 elif [[ -z "$destination_repository" ]]; then
@@ -907,6 +918,43 @@ preflight_checks() {
       fi
       log_error ""
       _checks_passed=false
+    fi
+  fi
+
+  # Check filter backend availability
+  local _selected_backend="${GITMUX_FILTER_BACKEND:-auto}"
+
+  if [[ "$_selected_backend" == "filter-repo" ]]; then
+    # User explicitly requested filter-repo
+    if check_filter_repo_available; then
+      # Check Python version
+      if python3 -c "import sys; exit(0 if sys.version_info >= (3,6) else 1)" 2>/dev/null; then
+        _preflight_result pass "git-filter-repo available (explicit)"
+      else
+        _preflight_result fail "git-filter-repo requires Python 3.6+"
+        _checks_passed=false
+      fi
+    else
+      _preflight_result fail "git-filter-repo not found but explicitly requested"
+      log_error ""
+      log_error "  📦 Install: brew install git-filter-repo (macOS)"
+      log_error "             apt install git-filter-repo (Debian/Ubuntu)"
+      log_error "             pip install git-filter-repo"
+      log_error ""
+      _checks_passed=false
+    fi
+  elif [[ "$_selected_backend" == "filter-branch" ]]; then
+    _preflight_result pass "using filter-branch (explicit)"
+  else
+    # Auto mode
+    if check_filter_repo_available; then
+      if python3 -c "import sys; exit(0 if sys.version_info >= (3,6) else 1)" 2>/dev/null; then
+        _preflight_result pass "git-filter-repo available (using filter-repo backend)"
+      else
+        _preflight_result warn "git-filter-repo found but Python < 3.6 (will use filter-branch)"
+      fi
+    else
+      _preflight_result warn "git-filter-repo not found (will use filter-branch)"
     fi
   fi
 
