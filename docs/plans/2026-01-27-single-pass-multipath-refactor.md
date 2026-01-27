@@ -274,8 +274,8 @@ If issues discovered:
 
 ## Success Criteria
 
-- [ ] `./gitmux.sh -m src:lib -m tests:pkg/tests` works with filter-repo
-- [ ] Same command works with filter-branch
-- [ ] No duplicate commits when paths share commits
-- [ ] All existing tests pass
-- [ ] No "lame" limitation documentation needed
+- [x] `./gitmux.sh -m src:lib -m tests:pkg/tests` works with filter-repo
+- [x] Same command works with filter-branch
+- [x] No duplicate commits when paths share commits
+- [x] All existing tests pass (164 tests)
+- [x] No "lame" limitation documentation needed
