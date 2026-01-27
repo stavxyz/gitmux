@@ -1478,3 +1478,29 @@ HELPER_HEADER
     GITMUX_FILTER_BACKEND=filter-branch run get_filter_backend
     [[ "$output" == "filter-branch" ]]
 }
+
+# ============================================================================
+# Filter backend pre-flight check tests
+# ============================================================================
+
+@test "preflight: shows filter backend status" {
+    # Run gitmux with dry-run to see preflight would show filter backend info
+    run "${GITMUX_SCRIPT}" \
+        -r https://github.com/test/source \
+        -t https://github.com/test/dest \
+        --dry-run 2>&1
+
+    # Should mention filter backend in some form
+    [[ "$output" =~ "filter" ]]
+}
+
+@test "preflight: fails when filter-repo explicitly requested but not found" {
+    # Use a PATH without git-filter-repo
+    PATH="/usr/bin:/bin" GITMUX_FILTER_BACKEND=filter-repo run "${GITMUX_SCRIPT}" \
+        -r https://github.com/test/source \
+        -t https://github.com/test/dest \
+        --dry-run 2>&1
+
+    [[ "$status" -ne 0 ]]
+    [[ "$output" =~ "filter-repo" ]] && [[ "$output" =~ "not found" || "$output" =~ "not installed" || "$output" =~ "requested" ]]
+}
