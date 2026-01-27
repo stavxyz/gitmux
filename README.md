@@ -334,24 +334,24 @@ The diff algorithm determines how git figures out what changed between two versi
 
 | Algorithm | Description | Best for |
 |-----------|-------------|----------|
-| `myers` | Default. Fast, minimal edit distance | Most cases |
-| `minimal` | Like myers, but tries harder to minimize diff size | When you want the smallest possible diff |
+| `histogram` | gitmux default. Enhanced patience with better performance | Code (what GitHub uses internally) |
 | `patience` | Matches unique lines first, then fills in | Code with clear structure (functions, classes) |
-| `histogram` | Enhanced patience with better performance | Large files, code with repetitive patterns |
+| `minimal` | Tries harder to minimize diff size | When you want the smallest possible diff |
+| `myers` | Git's default. Fast, minimal edit distance | Speed over quality |
 
 ```bash
-# Use histogram algorithm (often best for code)
-./gitmux.sh -r source -t dest -X diff-algorithm=histogram
+# gitmux uses histogram by default, but you can override:
+./gitmux.sh -r source -t dest -X diff-algorithm=myers
 
 # Use minimal algorithm
 ./gitmux.sh -r source -t dest -X diff-algorithm=minimal
 ```
 
 **When to use what:**
-- **`histogram`** is generally the best choice for code—it's what GitHub uses internally
+- **`histogram`** (gitmux default) is the best choice for code—it's what GitHub uses internally
 - **`patience`** (shorthand `-X patience`) is good when histogram produces weird results
 - **`minimal`** when you want the mathematically smallest diff
-- **`myers`** (default) when speed matters more than diff quality
+- **`myers`** (Git's default) when speed matters more than diff quality
 
 ### Custom Options with `-o`
 
