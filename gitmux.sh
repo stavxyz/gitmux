@@ -1491,9 +1491,18 @@ filter_run_filter_repo() {
   # Handle specific file extraction (-l flag)
   if [ -n "${rev_list_files}" ]; then
     # Parse rev_list_files and add each path
-    # rev_list_files format: "--all -- file1 file2"
+    # Format: "--all -- file1 file2" (inherited from filter-branch rev-list syntax)
+    # We strip the "--all -- " prefix and extract just the file paths
+    if [[ ! "${rev_list_files}" =~ .*" -- ".* ]]; then
+      log_error "Invalid rev_list_files format: expected '--all -- file1 file2', got: ${rev_list_files}"
+      return 1
+    fi
     local _files_only
-    _files_only=$(echo "${rev_list_files}" | sed 's/.*-- //')
+    _files_only=$(echo "${rev_list_files}" | sed 's/.*-- //') || {
+      log_error "Failed to parse rev_list_files: ${rev_list_files}"
+      return 1
+    }
+    # Note: word splitting is intentional here to handle multiple paths
     for _file in ${_files_only}; do
       _filter_repo_args+=("--path" "${_file}")
     done
