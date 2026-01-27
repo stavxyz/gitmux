@@ -1418,3 +1418,36 @@ HELPER_HEADER
     PATH="/nonexistent" run check_filter_repo_available
     [[ "$status" -eq 1 ]]
 }
+
+@test "help: shows --filter-backend option" {
+    run "${GITMUX_SCRIPT}" -h
+    [[ "$output" =~ "--filter-backend" ]]
+    [[ "$output" =~ "filter-branch|filter-repo|auto" ]]
+}
+
+@test "filter-backend: accepts auto value" {
+    run "${GITMUX_SCRIPT}" --filter-backend auto -r x -t y --dry-run 2>&1
+    [[ ! "$output" =~ "must be 'auto'" ]]
+}
+
+@test "filter-backend: accepts filter-repo value" {
+    run "${GITMUX_SCRIPT}" --filter-backend filter-repo -r x -t y --dry-run 2>&1
+    [[ ! "$output" =~ "must be 'auto'" ]]
+}
+
+@test "filter-backend: accepts filter-branch value" {
+    run "${GITMUX_SCRIPT}" --filter-backend filter-branch -r x -t y --dry-run 2>&1
+    [[ ! "$output" =~ "must be 'auto'" ]]
+}
+
+@test "filter-backend: rejects invalid value" {
+    run "${GITMUX_SCRIPT}" --filter-backend invalid -r x -t y 2>&1
+    [[ "$status" -ne 0 ]]
+    [[ "$output" =~ "must be 'auto', 'filter-repo', or 'filter-branch'" ]]
+}
+
+@test "filter-backend: respects GITMUX_FILTER_BACKEND env var" {
+    # This should fail later (domain mismatch), but not on filter-backend validation
+    GITMUX_FILTER_BACKEND=filter-branch run "${GITMUX_SCRIPT}" -r x -t y --dry-run 2>&1
+    [[ ! "$output" =~ "must be 'auto', 'filter-repo', or 'filter-branch'" ]]
+}
