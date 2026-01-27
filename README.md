@@ -189,7 +189,6 @@ Author/Committer Override:
 Logging & Diagnostics:
   -L, --log-level     Log verbosity: debug, info, warning, error (default: info)
   -S, --skip-preflight  Skip pre-flight validation checks (advanced use)
-  -D, --dry-run       Preview changes without modifying anything
   -k                  Keep temp workspace (for debugging)
   -v                  Verbose output (sets log level to debug)
   -h                  Show help
