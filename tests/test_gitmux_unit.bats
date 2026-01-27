@@ -1455,6 +1455,19 @@ EOF
     [[ "$status" -eq 1 ]]
 }
 
+@test "_check_python_version: returns 3 on unexpected Python error (e.g. exit 127)" {
+    # Create a mock python3 that returns unexpected exit code (simulates permission denied, etc.)
+    mkdir -p "${BATS_TEST_TMPDIR}/bin"
+    cat > "${BATS_TEST_TMPDIR}/bin/python3" << 'EOF'
+#!/bin/bash
+exit 127
+EOF
+    chmod +x "${BATS_TEST_TMPDIR}/bin/python3"
+
+    PATH="${BATS_TEST_TMPDIR}/bin" run _check_python_version
+    [[ "$status" -eq 3 ]]
+}
+
 @test "help: shows --filter-backend option" {
     run "${GITMUX_SCRIPT}" -h
     [[ "$output" =~ "--filter-backend" ]]
@@ -1510,6 +1523,23 @@ EOF
 
 @test "get_filter_backend: returns filter-branch when explicitly set" {
     GITMUX_FILTER_BACKEND=filter-branch run get_filter_backend
+    [[ "$output" == "filter-branch" ]]
+}
+
+@test "get_filter_backend: returns filter-branch when auto and filter-repo available but Python < 3.6" {
+    # Mock git-filter-repo as available
+    mkdir -p "${BATS_TEST_TMPDIR}/bin"
+    echo '#!/bin/bash' > "${BATS_TEST_TMPDIR}/bin/git-filter-repo"
+    chmod +x "${BATS_TEST_TMPDIR}/bin/git-filter-repo"
+
+    # Mock python3 to fail version check (simulates Python < 3.6)
+    cat > "${BATS_TEST_TMPDIR}/bin/python3" << 'EOF'
+#!/bin/bash
+exit 1
+EOF
+    chmod +x "${BATS_TEST_TMPDIR}/bin/python3"
+
+    GITMUX_FILTER_BACKEND=auto PATH="${BATS_TEST_TMPDIR}/bin" run get_filter_backend
     [[ "$output" == "filter-branch" ]]
 }
 
@@ -1638,6 +1668,97 @@ Generated with [Claude Code](https://claude.ai/code)"
     # Should remove Claude co-authors
     [[ ! "$E2E_COMMIT_MSG" =~ "@anthropic.com" ]]
     [[ ! "$E2E_COMMIT_MSG" =~ "Generated with" ]]
+
+    teardown_local_repos
+}
+
+@test "e2e: filter-repo coauthor-action 'all' removes all co-authors" {
+    # Skip if filter-repo not installed
+    if ! command -v git-filter-repo &>/dev/null; then
+        skip "git-filter-repo not installed"
+    fi
+
+    setup_local_repos
+
+    # Create source commit with mixed co-authors
+    cd "$E2E_TEST_DIR/source" || return 1
+    echo "content" > file.txt
+    git add .
+    git commit -m "Test commit
+
+Co-authored-by: Human Dev <human@example.com>
+Co-authored-by: Claude <noreply@anthropic.com>
+
+Generated with [Some Tool](https://example.com)"
+    git push origin main
+
+    # Run gitmux with filter-repo backend and coauthor-action 'all'
+    cd "$BATS_TEST_DIRNAME/.." || return 1
+    GITMUX_FILTER_BACKEND=filter-repo run bash -c "./gitmux.sh \
+        -r '$E2E_TEST_DIR/source' \
+        -t '$E2E_TEST_DIR/dest' \
+        -b main \
+        --coauthor-action all \
+        -k <<< 'y' 2>&1"
+
+    echo "gitmux output: $output" >&2
+
+    # Verify gitmux didn't fail
+    [[ ! "$output" =~ "errxit" ]]
+    [[ ! "$output" =~ "filter-repo failed" ]]
+
+    # Check the commit message
+    cd "$E2E_TEST_DIR/dest" || return 1
+    local branch_name
+    branch_name=$(git branch -a | grep "update-from-main" | head -1 | tr -d ' *')
+
+    [[ -n "$branch_name" ]] || { echo "No update-from-main branch found"; return 1; }
+
+    # Look at the filtered commit (HEAD~1), not the "Bring in changes" commit (HEAD)
+    E2E_COMMIT_MSG=$(git log -1 --format="%B" "${branch_name}~1" 2>/dev/null)
+    echo "Filtered commit message: $E2E_COMMIT_MSG" >&2
+
+    # Should remove ALL co-authors (including human)
+    [[ ! "$E2E_COMMIT_MSG" =~ "Co-authored-by:" ]]
+    [[ ! "$E2E_COMMIT_MSG" =~ "Generated with" ]]
+
+    teardown_local_repos
+}
+
+@test "e2e: filter-repo warns when committer differs from author" {
+    # Skip if filter-repo not installed
+    if ! command -v git-filter-repo &>/dev/null; then
+        skip "git-filter-repo not installed"
+    fi
+
+    setup_local_repos
+
+    # Create a simple source commit
+    cd "$E2E_TEST_DIR/source" || return 1
+    echo "content" > file.txt
+    git add .
+    git commit -m "Test commit"
+    git push origin main
+
+    # Run gitmux with filter-repo backend and different author/committer
+    cd "$BATS_TEST_DIRNAME/.." || return 1
+    GITMUX_FILTER_BACKEND=filter-repo run bash -c "./gitmux.sh \
+        -r '$E2E_TEST_DIR/source' \
+        -t '$E2E_TEST_DIR/dest' \
+        -b main \
+        --author-name 'Author Name' \
+        --author-email 'author@example.com' \
+        --committer-name 'Committer Name' \
+        --committer-email 'committer@example.com' \
+        -k <<< 'y' 2>&1"
+
+    echo "gitmux output: $output" >&2
+
+    # Verify gitmux didn't fail
+    [[ ! "$output" =~ "errxit" ]]
+
+    # Should show warning about filter-repo limitation
+    [[ "$output" =~ "filter-repo backend applies same name/email to both author and committer" ]]
 
     teardown_local_repos
 }

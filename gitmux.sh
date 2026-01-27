@@ -270,23 +270,25 @@ _show_filter_repo_install_help() {
 #   0 if Python 3.6+ is available
 #   1 if Python version is too old
 #   2 if python3 is not installed
+#   3 if Python check failed unexpectedly (permission denied, segfault, etc.)
 _check_python_version() {
   if ! command -v python3 &>/dev/null; then
     return 2
   fi
   local _py_output
-  if ! _py_output=$(python3 -c "import sys; exit(0 if sys.version_info >= (3,6) else 1)" 2>&1); then
-    local _exit_code=$?
-    if [[ $_exit_code -eq 1 ]]; then
-      # Known: Python < 3.6
-      return 1
-    else
-      # Unexpected error (segfault, permission denied, etc.) - log it
-      log_debug "Python version check failed unexpectedly (exit ${_exit_code}): ${_py_output}"
-      return 1
-    fi
+  # Capture output and exit code separately to properly detect failure modes
+  _py_output=$(python3 -c "import sys; exit(0 if sys.version_info >= (3,6) else 1)" 2>&1)
+  local _exit_code=$?
+  if [[ $_exit_code -eq 0 ]]; then
+    return 0
+  elif [[ $_exit_code -eq 1 ]]; then
+    # Known: Python < 3.6
+    return 1
+  else
+    # Unexpected error (segfault, permission denied, etc.) - return distinct code
+    log_debug "Python version check failed unexpectedly (exit ${_exit_code}): ${_py_output}"
+    return 3
   fi
-  return 0
 }
 
 # Determine which filter backend to use.
@@ -1362,10 +1364,11 @@ GIT_SHA=$(git rev-parse --short HEAD)
 log "GIT BRANCH ==> ${GIT_BRANCH}"
 log "GIT_SHA ==> ${GIT_SHA}"
 
-# Save original state for multi-mapping support
-# We need to reset to this state before processing each subsequent mapping
+# Note: ORIGINAL_HEAD was previously used for multi-pass branching/merging.
+# With single-pass multi-path processing, this is no longer needed but
+# is kept for debugging purposes only.
 ORIGINAL_HEAD=$(git rev-parse HEAD)
-log "Saved original HEAD: ${ORIGINAL_HEAD}"
+log "Starting HEAD: ${ORIGINAL_HEAD}"
 
 # Run filter-branch with the configured options.
 # This is the legacy implementation - preserved for systems without filter-repo.
@@ -1547,28 +1550,39 @@ filter_run_filter_repo() {
   fi
 
   # Handle Co-authored-by removal using message-callback
+  # All Python callbacks include error handling to prevent cryptic failures
   if [[ "$GITMUX_COAUTHOR_ACTION" == "claude" ]]; then
     _filter_repo_args+=("--message-callback" '
-import re
-# Remove Claude/Anthropic co-author lines
-patterns = [
-    rb"Co-authored-by:\s*Claude\s+Code[^\n]*\n",
-    rb"Co-authored-by:\s*Claude\s*<[^\n]*\n",
-    rb"Co-authored-by:[^\n]*@anthropic\.com[^\n]*\n",
-    rb"Generated with[^\n]*Claude[^\n]*\n",
-]
-result = message
-for pattern in patterns:
-    result = re.sub(pattern, b"", result, flags=re.IGNORECASE)
-return result
+try:
+    import re
+    # Remove Claude/Anthropic co-author lines (also handles end-of-message without trailing newline)
+    patterns = [
+        rb"Co-authored-by:\s*Claude\s+Code[^\n]*\n?",
+        rb"Co-authored-by:\s*Claude\s*<[^\n]*\n?",
+        rb"Co-authored-by:[^\n]*@anthropic\.com[^\n]*\n?",
+        rb"Generated with[^\n]*Claude[^\n]*\n?",
+    ]
+    result = message
+    for pattern in patterns:
+        result = re.sub(pattern, b"", result, flags=re.IGNORECASE)
+    return result
+except Exception as e:
+    import sys
+    print(f"[gitmux] Warning: Co-author removal failed: {e}", file=sys.stderr)
+    return message
 ')
   elif [[ "$GITMUX_COAUTHOR_ACTION" == "all" ]]; then
     _filter_repo_args+=("--message-callback" '
-import re
-# Remove all co-author lines
-result = re.sub(rb"Co-authored-by:[^\n]*\n", b"", message, flags=re.IGNORECASE)
-result = re.sub(rb"Generated with\s*\[[^\n]*\n", b"", result, flags=re.IGNORECASE)
-return result
+try:
+    import re
+    # Remove all co-author lines (also handles end-of-message without trailing newline)
+    result = re.sub(rb"Co-authored-by:[^\n]*\n?", b"", message, flags=re.IGNORECASE)
+    result = re.sub(rb"Generated with\s*\[[^\n]*\n?", b"", result, flags=re.IGNORECASE)
+    return result
+except Exception as e:
+    import sys
+    print(f"[gitmux] Warning: Co-author removal failed: {e}", file=sys.stderr)
+    return message
 ')
   fi
 
@@ -1592,6 +1606,8 @@ return result
 #   $1 - Newline-separated list of "source:dest" mappings
 # Globals read:
 #   GITMUX_AUTHOR_NAME, GITMUX_AUTHOR_EMAIL - rewrites commit author
+#   GITMUX_COMMITTER_NAME, GITMUX_COMMITTER_EMAIL - checked but warns if different
+#     (filter-repo callbacks apply same values to author AND committer)
 #   GITMUX_COAUTHOR_ACTION - controls co-author trailer removal
 # Returns:
 #   0 on success, 1 on failure
@@ -1644,26 +1660,39 @@ filter_run_filter_repo_multipath() {
   fi
 
   # Handle Co-authored-by removal using message-callback
+  # All Python callbacks include error handling to prevent cryptic failures
   if [[ "$GITMUX_COAUTHOR_ACTION" == "claude" ]]; then
     _filter_repo_args+=("--message-callback" '
-import re
-patterns = [
-    rb"Co-authored-by:\s*Claude\s+Code[^\n]*\n",
-    rb"Co-authored-by:\s*Claude\s*<[^\n]*\n",
-    rb"Co-authored-by:[^\n]*@anthropic\.com[^\n]*\n",
-    rb"Generated with[^\n]*Claude[^\n]*\n",
-]
-result = message
-for pattern in patterns:
-    result = re.sub(pattern, b"", result, flags=re.IGNORECASE)
-return result
+try:
+    import re
+    # Remove Claude/Anthropic co-author lines (also handles end-of-message without trailing newline)
+    patterns = [
+        rb"Co-authored-by:\s*Claude\s+Code[^\n]*\n?",
+        rb"Co-authored-by:\s*Claude\s*<[^\n]*\n?",
+        rb"Co-authored-by:[^\n]*@anthropic\.com[^\n]*\n?",
+        rb"Generated with[^\n]*Claude[^\n]*\n?",
+    ]
+    result = message
+    for pattern in patterns:
+        result = re.sub(pattern, b"", result, flags=re.IGNORECASE)
+    return result
+except Exception as e:
+    import sys
+    print(f"[gitmux] Warning: Co-author removal failed: {e}", file=sys.stderr)
+    return message
 ')
   elif [[ "$GITMUX_COAUTHOR_ACTION" == "all" ]]; then
     _filter_repo_args+=("--message-callback" '
-import re
-result = re.sub(rb"Co-authored-by:[^\n]*\n", b"", message, flags=re.IGNORECASE)
-result = re.sub(rb"Generated with\s*\[[^\n]*\n", b"", result, flags=re.IGNORECASE)
-return result
+try:
+    import re
+    # Remove all co-author lines (also handles end-of-message without trailing newline)
+    result = re.sub(rb"Co-authored-by:[^\n]*\n?", b"", message, flags=re.IGNORECASE)
+    result = re.sub(rb"Generated with\s*\[[^\n]*\n?", b"", result, flags=re.IGNORECASE)
+    return result
+except Exception as e:
+    import sys
+    print(f"[gitmux] Warning: Co-author removal failed: {e}", file=sys.stderr)
+    return message
 ')
   fi
 
@@ -1715,6 +1744,13 @@ filter_run_filter_branch_multipath() {
     fi
   done <<< "$_mappings"
 
+  # Validate we have paths to keep - empty array would delete everything
+  if [[ ${#_keep_paths[@]} -eq 0 ]]; then
+    log_error "No valid paths to keep in multi-path filter - refusing to proceed"
+    log_error "This could result in deleting all repository content"
+    return 1
+  fi
+
   # Build the keep pattern for case statement
   local _keep_pattern=""
   for path in "${_keep_paths[@]}"; do
@@ -1725,18 +1761,21 @@ filter_run_filter_branch_multipath() {
     fi
   done
 
-  # Build rename commands with error reporting
+  # Build rename commands that fail fast on errors
+  # If mkdir or mv fails when source exists, we should abort to prevent incorrect results
   local _rename_script=""
   for op in "${_rename_ops[@]}"; do
     local _src="${op%%:*}"
     local _dest="${op#*:}"
     _rename_script+="
     if [ -d \"${_src}\" ]; then
-      if ! mkdir -p \"\$(dirname \"${_dest}\")\" 2>/dev/null; then
-        echo \"[gitmux] Warning: mkdir failed for \$(dirname \"${_dest}\")\" >&2
+      if ! mkdir -p \"\$(dirname \"${_dest}\")\"; then
+        echo \"[gitmux] ERROR: mkdir failed for \$(dirname \"${_dest}\")\" >&2
+        exit 1
       fi
-      if ! mv \"${_src}\" \"${_dest}\" 2>/dev/null; then
-        echo \"[gitmux] Warning: mv ${_src} -> ${_dest} failed\" >&2
+      if ! mv \"${_src}\" \"${_dest}\"; then
+        echo \"[gitmux] ERROR: mv ${_src} -> ${_dest} failed\" >&2
+        exit 1
       fi
     fi"
   done
@@ -1791,9 +1830,12 @@ filter_run_filter_branch_multipath() {
 
   log "Running: git filter-branch ${_fb_args[*]}"
 
-  # Suppress the filter-branch warning
-  if ! FILTER_BRANCH_SQUELCH_WARNING=1 git filter-branch "${_fb_args[@]}"; then
+  # Suppress the filter-branch warning and capture output for debugging
+  local _fb_output
+  if ! _fb_output=$(FILTER_BRANCH_SQUELCH_WARNING=1 git filter-branch "${_fb_args[@]}" 2>&1); then
     log_error "git filter-branch failed for multi-path operation"
+    log_error "Filter-branch output: ${_fb_output}"
+    log_debug "Command was: git filter-branch ${_fb_args[*]}"
     return 1
   fi
 
