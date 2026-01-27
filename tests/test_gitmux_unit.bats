@@ -1303,3 +1303,79 @@ HELPER_HEADER
     [[ "$output" =~ "[ERROR]" ]]
     [[ "$output" =~ "test message" ]]
 }
+
+# ============================================================================
+# Help output tests
+# ============================================================================
+
+@test "help: no arguments shows help and exits 0" {
+    run bash -c "cd '$BATS_TEST_DIRNAME/..' && ./gitmux.sh 2>&1"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" =~ "gitmux" ]]
+    [[ "$output" =~ "Usage:" ]]
+}
+
+@test "help: -h flag shows help and exits 0" {
+    run bash -c "cd '$BATS_TEST_DIRNAME/..' && ./gitmux.sh -h 2>&1"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" =~ "Usage:" ]]
+}
+
+@test "help: output contains Required category" {
+    run bash -c "cd '$BATS_TEST_DIRNAME/..' && ./gitmux.sh -h 2>&1"
+    [[ "$output" =~ "Required" ]]
+    [[ "$output" =~ "-r <url|path>" ]]
+    [[ "$output" =~ "-t <url|path>" ]]
+}
+
+@test "help: output contains Path Filtering category" {
+    run bash -c "cd '$BATS_TEST_DIRNAME/..' && ./gitmux.sh -h 2>&1"
+    [[ "$output" =~ "Path Filtering" ]]
+    [[ "$output" =~ "-m <src:dest>" ]]
+    [[ "$output" =~ "-d <path>" ]]
+}
+
+@test "help: output contains Destination category" {
+    run bash -c "cd '$BATS_TEST_DIRNAME/..' && ./gitmux.sh -h 2>&1"
+    [[ "$output" =~ "Destination" ]]
+    [[ "$output" =~ "-b <branch>" ]]
+}
+
+@test "help: output contains Rebase category" {
+    run bash -c "cd '$BATS_TEST_DIRNAME/..' && ./gitmux.sh -h 2>&1"
+    [[ "$output" =~ "Rebase" ]]
+    [[ "$output" =~ "-X <strategy>" ]]
+}
+
+@test "help: output contains GitHub Integration category" {
+    run bash -c "cd '$BATS_TEST_DIRNAME/..' && ./gitmux.sh -h 2>&1"
+    [[ "$output" =~ "GitHub Integration" ]]
+    [[ "$output" =~ "-s" ]]
+}
+
+@test "help: output contains Author Rewriting category" {
+    run bash -c "cd '$BATS_TEST_DIRNAME/..' && ./gitmux.sh -h 2>&1"
+    [[ "$output" =~ "Author Rewriting" ]]
+    [[ "$output" =~ "--author-name" ]]
+    [[ "$output" =~ "--dry-run" ]]
+}
+
+@test "help: output contains Logging & Debug category" {
+    run bash -c "cd '$BATS_TEST_DIRNAME/..' && ./gitmux.sh -h 2>&1"
+    [[ "$output" =~ "Logging" ]]
+    [[ "$output" =~ "--log-level" ]]
+    [[ "$output" =~ "-v" ]]
+}
+
+@test "help: output contains tagline quote" {
+    run bash -c "cd '$BATS_TEST_DIRNAME/..' && ./gitmux.sh -h 2>&1"
+    [[ "$output" =~ "The life of a repo man is always intense" ]]
+}
+
+@test "help: no ANSI colors when piped (not a TTY)" {
+    # When output is piped, colors should be disabled
+    run bash -c "cd '$BATS_TEST_DIRNAME/..' && ./gitmux.sh -h | cat"
+    [[ "$status" -eq 0 ]]
+    # Should NOT contain ANSI escape sequences
+    [[ ! "$output" =~ $'\033' ]]
+}
