@@ -1322,6 +1322,112 @@ log "GIT_SHA ==> ${GIT_SHA}"
 ORIGINAL_HEAD=$(git rev-parse HEAD)
 log "Saved original HEAD: ${ORIGINAL_HEAD}"
 
+# Run filter-branch with the configured options.
+# This is the legacy implementation - preserved for systems without filter-repo.
+# Arguments:
+#   $1 - source_path (subdirectory to filter, empty for root)
+#   $2 - dest_path (destination path for reorganization, unused by filter-branch)
+#   $3 - mapping_idx (index for logging)
+# Globals read:
+#   GITMUX_AUTHOR_NAME, GITMUX_AUTHOR_EMAIL
+#   GITMUX_COMMITTER_NAME, GITMUX_COMMITTER_EMAIL
+#   GITMUX_COAUTHOR_ACTION
+#   rev_list_files
+# Returns:
+#   0 on success, 1 on failure
+filter_run_filter_branch() {
+  local _source_path="$1"
+  local _dest_path="$2"  # unused by filter-branch, kept for API symmetry
+  local _mapping_idx="$3"
+
+  # Build subdirectory filter options
+  local _subdirectory_filter_options=""
+  if [ -n "${_source_path}" ]; then
+    _subdirectory_filter_options="--subdirectory-filter ${_source_path}"
+  fi
+
+  # Build --env-filter for author/committer override
+  local _env_filter_script=""
+  if [[ -n "$GITMUX_AUTHOR_NAME" ]] || [[ -n "$GITMUX_COMMITTER_NAME" ]]; then
+    # Export for use in filter subprocess
+    export GITMUX_AUTHOR_NAME GITMUX_AUTHOR_EMAIL
+    export GITMUX_COMMITTER_NAME GITMUX_COMMITTER_EMAIL
+    # shellcheck disable=SC2016  # Single quotes are intentional - script is evaluated by filter-branch
+    _env_filter_script='
+      if [ -n "${GITMUX_AUTHOR_NAME:-}" ]; then
+        export GIT_AUTHOR_NAME="${GITMUX_AUTHOR_NAME}"
+        export GIT_AUTHOR_EMAIL="${GITMUX_AUTHOR_EMAIL}"
+      fi
+      if [ -n "${GITMUX_COMMITTER_NAME:-}" ]; then
+        export GIT_COMMITTER_NAME="${GITMUX_COMMITTER_NAME}"
+        export GIT_COMMITTER_EMAIL="${GITMUX_COMMITTER_EMAIL}"
+      fi
+    '
+    log "Author/committer override enabled"
+  fi
+
+  # Build --msg-filter for Co-authored-by handling
+  local _msg_filter_script=""
+  if [[ "$GITMUX_COAUTHOR_ACTION" == "claude" ]]; then
+    _msg_filter_script='sed -E \
+      -e "/[Cc]o-[Aa]uthored-[Bb]y:[[:space:]]*[Cc]laude[[:space:]]+[Cc]ode/d" \
+      -e "/[Cc]o-[Aa]uthored-[Bb]y:[[:space:]]*[Cc]laude[[:space:]]*</d" \
+      -e "/[Cc]o-[Aa]uthored-[Bb]y:.*@anthropic\.com/d" \
+      -e "/[Gg]enerated with.*[Cc]laude/d"'
+  elif [[ "$GITMUX_COAUTHOR_ACTION" == "all" ]]; then
+    _msg_filter_script='sed -E \
+      -e "/[Cc]o-[Aa]uthored-[Bb]y:/d" \
+      -e "/[Gg]enerated with[[:space:]]*\[/d"'
+  fi
+
+  # Build the filter-branch command dynamically
+  local _filter_branch_cmd="git filter-branch --tag-name-filter cat"
+
+  if [ -n "${_env_filter_script}" ]; then
+    _filter_branch_cmd="${_filter_branch_cmd} --env-filter '${_env_filter_script}'"
+  fi
+
+  if [ -n "${_msg_filter_script}" ]; then
+    _filter_branch_cmd="${_filter_branch_cmd} --msg-filter '${_msg_filter_script}'"
+  fi
+
+  log "rev-list options --> ${rev_list_files}"
+  log "subdirectory filter options --> ${_subdirectory_filter_options}"
+
+  # WARNING: git-filter-branch has a glut of gotchas...
+  # Yeah, we know.
+  export FILTER_BRANCH_SQUELCH_WARNING=1
+
+  if [ -n "${rev_list_files}" ]; then
+    log "Targeting paths/revisions: ${rev_list_files}"
+    # shellcheck disable=SC2086
+    _filter_branch_cmd="${_filter_branch_cmd} ${_subdirectory_filter_options} --index-filter \"
+      git read-tree --empty
+      git reset \\\$GIT_COMMIT -- ${rev_list_files}
+     \" -- --all -- ${rev_list_files}"
+    log "Running: ${_filter_branch_cmd}"
+    # SAFETY: eval is safe here because all user-provided values (author/committer names/emails)
+    # are validated by _validate_safe_string() which rejects shell metacharacters.
+    if ! eval "${_filter_branch_cmd}"; then
+      log_error "git filter-branch failed for mapping $((_mapping_idx + 1))"
+      log_debug "Command was: ${_filter_branch_cmd}"
+      return 1
+    fi
+  else
+    # shellcheck disable=SC2086
+    _filter_branch_cmd="${_filter_branch_cmd} ${_subdirectory_filter_options}"
+    log "Running: ${_filter_branch_cmd}"
+    # SAFETY: eval is safe here - see comment above regarding input validation
+    if ! eval "${_filter_branch_cmd}"; then
+      log_error "git filter-branch failed for mapping $((_mapping_idx + 1))"
+      log_debug "Command was: ${_filter_branch_cmd}"
+      return 1
+    fi
+  fi
+
+  return 0
+}
+
 # Process a single source:dest mapping.
 # Performs file reorganization and git filter-branch for one path mapping.
 # Arguments:
@@ -1461,89 +1567,9 @@ process_single_mapping() {
     return 1
   fi
 
-  # Build subdirectory filter options
-  local _subdirectory_filter_options=""
-  if [ -n "${_source_path}" ]; then
-    _subdirectory_filter_options="--subdirectory-filter ${_source_path}"
-  fi
-
-  # Build --env-filter for author/committer override
-  local _env_filter_script=""
-  if [[ -n "$GITMUX_AUTHOR_NAME" ]] || [[ -n "$GITMUX_COMMITTER_NAME" ]]; then
-    # Export for use in filter subprocess
-    export GITMUX_AUTHOR_NAME GITMUX_AUTHOR_EMAIL
-    export GITMUX_COMMITTER_NAME GITMUX_COMMITTER_EMAIL
-    # shellcheck disable=SC2016  # Single quotes are intentional - script is evaluated by filter-branch
-    _env_filter_script='
-      if [ -n "${GITMUX_AUTHOR_NAME:-}" ]; then
-        export GIT_AUTHOR_NAME="${GITMUX_AUTHOR_NAME}"
-        export GIT_AUTHOR_EMAIL="${GITMUX_AUTHOR_EMAIL}"
-      fi
-      if [ -n "${GITMUX_COMMITTER_NAME:-}" ]; then
-        export GIT_COMMITTER_NAME="${GITMUX_COMMITTER_NAME}"
-        export GIT_COMMITTER_EMAIL="${GITMUX_COMMITTER_EMAIL}"
-      fi
-    '
-    log "Author/committer override enabled"
-  fi
-
-  # Build --msg-filter for Co-authored-by handling
-  local _msg_filter_script=""
-  if [[ "$GITMUX_COAUTHOR_ACTION" == "claude" ]]; then
-    _msg_filter_script='sed -E \
-      -e "/[Cc]o-[Aa]uthored-[Bb]y:[[:space:]]*[Cc]laude[[:space:]]+[Cc]ode/d" \
-      -e "/[Cc]o-[Aa]uthored-[Bb]y:[[:space:]]*[Cc]laude[[:space:]]*</d" \
-      -e "/[Cc]o-[Aa]uthored-[Bb]y:.*@anthropic\.com/d" \
-      -e "/[Gg]enerated with.*[Cc]laude/d"'
-  elif [[ "$GITMUX_COAUTHOR_ACTION" == "all" ]]; then
-    _msg_filter_script='sed -E \
-      -e "/[Cc]o-[Aa]uthored-[Bb]y:/d" \
-      -e "/[Gg]enerated with[[:space:]]*\[/d"'
-  fi
-
-  # Build the filter-branch command dynamically
-  local _filter_branch_cmd="git filter-branch --tag-name-filter cat"
-
-  if [ -n "${_env_filter_script}" ]; then
-    _filter_branch_cmd="${_filter_branch_cmd} --env-filter '${_env_filter_script}'"
-  fi
-
-  if [ -n "${_msg_filter_script}" ]; then
-    _filter_branch_cmd="${_filter_branch_cmd} --msg-filter '${_msg_filter_script}'"
-  fi
-
-  log "rev-list options --> ${rev_list_files}"
-  log "subdirectory filter options --> ${_subdirectory_filter_options}"
-
-  # WARNING: git-filter-branch has a glut of gotchas...
-  # Yeah, we know.
-  export FILTER_BRANCH_SQUELCH_WARNING=1
-
-  if [ -n "${rev_list_files}" ]; then
-    log "Targeting paths/revisions: ${rev_list_files}"
-    # shellcheck disable=SC2086
-    _filter_branch_cmd="${_filter_branch_cmd} ${_subdirectory_filter_options} --index-filter \"
-      git read-tree --empty
-      git reset \\\$GIT_COMMIT -- ${rev_list_files}
-     \" -- --all -- ${rev_list_files}"
-    log "Running: ${_filter_branch_cmd}"
-    # SAFETY: eval is safe here because all user-provided values (author/committer names/emails)
-    # are validated by _validate_safe_string() which rejects shell metacharacters.
-    if ! eval "${_filter_branch_cmd}"; then
-      log_error "git filter-branch failed for mapping $((_mapping_idx + 1))"
-      log_debug "Command was: ${_filter_branch_cmd}"
-      return 1
-    fi
-  else
-    # shellcheck disable=SC2086
-    _filter_branch_cmd="${_filter_branch_cmd} ${_subdirectory_filter_options}"
-    log "Running: ${_filter_branch_cmd}"
-    # SAFETY: eval is safe here - see comment above regarding input validation
-    if ! eval "${_filter_branch_cmd}"; then
-      log_error "git filter-branch failed for mapping $((_mapping_idx + 1))"
-      log_debug "Command was: ${_filter_branch_cmd}"
-      return 1
-    fi
+  # Run the filter operation using the selected backend
+  if ! filter_run_filter_branch "${_source_path}" "${_dest_path}" "${_mapping_idx}"; then
+    return 1
   fi
 
   # Count commits in the filtered history
