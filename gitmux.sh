@@ -100,6 +100,22 @@ if [[ -t 2 ]]; then
   _LOG_COLOR_ERROR=$'\033[31m'     # red
 fi
 
+# ANSI color codes for help output (used when stdout is a TTY)
+_HELP_RESET=''
+_HELP_BOLD=''
+_HELP_DIM=''
+_HELP_CYAN=''
+_HELP_GREEN=''
+
+# Initialize help colors if stdout is a TTY
+if [[ -t 1 ]]; then
+  _HELP_RESET=$'\033[0m'
+  _HELP_BOLD=$'\033[1m'
+  _HELP_DIM=$'\033[2m'
+  _HELP_CYAN=$'\033[36m'
+  _HELP_GREEN=$'\033[32m'
+fi
+
 # Convert log level name to numeric value for comparison.
 # Arguments:
 #   $1 - Log level name (debug, info, warning, error)
@@ -471,71 +487,65 @@ function log () {
 # Display usage information and available options.
 function show_help()
 {
-  # shellcheck disable=SC1111
-  cat << EOF
-  Usage: ${0##*/} -r SOURCE -t DESTINATION [OPTIONS]
+  # Helper functions for formatted output
+  _help_header() { printf '\n%s%s%s\n' "${_HELP_BOLD}${_HELP_CYAN}" "$1" "${_HELP_RESET}"; }
+  _help_flag() { printf '  %s%-28s%s %s\n' "${_HELP_BOLD}${_HELP_GREEN}" "$1" "${_HELP_RESET}" "$2"; }
+  _help_cont() { printf '  %-28s %s%s%s\n' "" "${_HELP_DIM}" "$1" "${_HELP_RESET}"; }
 
-  Options: [-m SOURCE:DEST ...] [-d SUBDIR] [-g GITREF] [-p DEST_PATH] [-b DEST_BRANCH]
-           [-X STRATEGY | -o REBASE_OPTS] [-z TEAM ...] [-i] [-s] [-c] [-k] [-v]
-           [--author-name NAME --author-email EMAIL]
-           [--committer-name NAME --committer-email EMAIL]
-           [--coauthor-action claude|all|keep] [--dry-run]
-  "The life of a repo man is always intense."
-  -r <repository>              Path/url to the [remote] source repository. Required.
-  -t <destination_repository>  Path/url to the [remote] destination repository. Required.
-  -m <source:dest>             Path mapping in source:dest format. Can be specified multiple times for
-                               multi-path migrations. All mappings are processed into a single branch/PR.
-                               Use \\: to escape literal colons in paths. Empty or '.' means root.
-                               Examples:
-                                 -m src/lib:packages/lib         # subdir to subdir
-                                 -m src/app:                     # subdir to dest root
-                                 -m :packages/imported           # entire source to dest subdir
-                                 -m path\\:with\\:colons:dest    # escaped colons
-                               Note: -m cannot be used with -d or -p.
-  -d <sub/directory>           Directory within source repository to extract. This value is supplied to
-                               \`git filter-branch\` as --subdirectory-filter. (default: '/' which is
-                               effectively a fork of the entire repo.) Supply a value for -d to extract
-                               only a piece/subdirectory of your source repository.
-                               Note: For multi-path migrations, use -m instead.
-  -g <gitref>                  Git ref for the [remote] source repository. (default: null, which just uses the HEAD of the default branch, probably 'trunk (or master)', after cloning.) Can be any value valid for \`git checkout <ref>\` e.g. a branch, commit, or tag.
-  -p <destination_path>        Destination path for the filtered repository content ( default: '/' which places the repository content into the root of the destination repository. e.g. to place source repository's /app directory content into the /lib directory of your destination repository, supply -p lib )
-                               Note: For multi-path migrations, use -m instead.
-  -b <destination_branch>      Destination (a.k.a. base) branch in destination repository against which, changes will be rebased. Further, if [-s] is supplied, the resulting content will be submitted with this destination branch as the target (base) for the pull request. (Default: trunk)
-  -l <rev-list options>        Options passed to git rev-list during \`git filter-branch\`. Can be used to specify individual files to be brought into the [new] repository. e.g. -l '--all -- file1.txt file2.txt' Note: file paths with spaces are not supported. For more info see git's documentation for git filter-branch under the parameters for <rev-list options>…
-  -o <rebase_options>          Options to supply to \`git rebase\`. If set and includes --interactive or -i, this script will drop you into the workspace to complete the workflow manually (Note: cannot use with -X)
-  -X <option>                  Rebase strategy option, e.g. theirs/ours/patience. Defaults to 'theirs' (Note: cannot use with -o)
-  -i                           Perform an interactive rebase. If you use this option you will need to push your resulting branch to the remote named 'destination' and submit a pull request manually.
-  -s                           Submit a pull request to your destination. Requires \`gh\`. Only valid for non-local destination repositories. (default: off)
-  -c                           Create the destination repository if it does not exist. Requires \`gh\`. (default: off)
-  -z                           Add this team to your destination repository. Use <org>/<team> notation e.g. engineering-org/firmware-team May be specified multiple times. Requires \`gh\`. Only valid for non-local destination repositories.
-  -N, --author-name <name>       Override author name for all transferred commits. Requires --author-email.
-                                 Can also be set via GITMUX_AUTHOR_NAME environment variable.
-  -E, --author-email <email>     Override author email for all transferred commits. Requires --author-name.
-                                 Can also be set via GITMUX_AUTHOR_EMAIL environment variable.
-  -n, --committer-name <name>    Override committer name for all transferred commits. Requires --committer-email.
-                                 Can also be set via GITMUX_COMMITTER_NAME environment variable.
-  -e, --committer-email <email>  Override committer email for all transferred commits. Requires --committer-name.
-                                 Can also be set via GITMUX_COMMITTER_EMAIL environment variable.
-  -C, --coauthor-action <action> Action for Co-authored-by trailers and Claude attribution in commit messages:
-                               'claude' - Remove only Claude/Anthropic attribution (Co-authored-by and Generated-with lines)
-                               'all' - Remove ALL Co-authored-by trailers and Generated-with lines
-                               'keep' - Preserve all trailers unchanged
-                               (default: 'claude' when author/committer options are used, otherwise 'keep')
-                               Can also be set via GITMUX_COAUTHOR_ACTION environment variable.
-  -D, --dry-run                Preview what changes would be made without actually modifying anything.
-                               Shows: author/committer changes, coauthor-action effects, and affected commits.
-                               Useful for verifying configuration before running. (default: off)
-  -L, --log-level <level>      Set logging verbosity: debug, info, warning, error. (default: info)
-                               Can also be set via GITMUX_LOG_LEVEL environment variable.
-                               debug: Show all output including command details
-                               info: Show key milestones and status (default)
-                               warning: Show only warnings and errors
-                               error: Show only errors
-  -S, --skip-preflight         Skip pre-flight validation checks (advanced use). (default: off)
-  -k                           Keep the tmp git workspace around instead of cleaning it up (useful for debugging). (default: off)
-  -v                           Verbose output. Equivalent to --log-level debug. (default: off)
-  -h                           Print help / usage
-EOF
+  echo
+  printf '%sgitmux%s - Sync repository subsets while preserving full git history\n' \
+    "${_HELP_BOLD}" "${_HELP_RESET}"
+  echo
+  printf '%sUsage:%s %s %s-r%s SOURCE %s-t%s DESTINATION [OPTIONS]\n' \
+    "${_HELP_DIM}" "${_HELP_RESET}" "${0##*/}" "${_HELP_GREEN}" "${_HELP_RESET}" "${_HELP_GREEN}" "${_HELP_RESET}"
+
+  _help_header "Required"
+  _help_flag "-r <url|path>" "Source repository"
+  _help_flag "-t <url|path>" "Destination repository"
+
+  _help_header "Path Filtering"
+  _help_flag "-m <src:dest>" "Map source path to destination (repeatable)"
+  _help_cont "Use \\: for literal colons. Empty or '.' means root"
+  _help_cont "Examples: -m src/lib:pkg/lib  -m src/app:"
+  _help_flag "-d <path>" "Extract only this subdirectory from source"
+  _help_flag "-p <path>" "Place content at this path in destination"
+  _help_flag "-g <ref>" "Source git ref: branch, tag, or commit"
+  _help_flag "-l <rev-list>" "Extract specific files (git rev-list format)"
+
+  _help_header "Destination"
+  _help_flag "-b <branch>" "Target branch in destination (default: trunk)"
+  _help_flag "-c" "Create destination repo if missing (requires gh)"
+
+  _help_header "Rebase"
+  _help_flag "-X <strategy>" "Strategy: theirs|ours|patience (default: theirs)"
+  _help_flag "-o <options>" "Custom git rebase options (mutex with -X)"
+  _help_flag "-i" "Interactive rebase mode"
+
+  _help_header "GitHub Integration"
+  _help_flag "-s" "Submit PR automatically (requires gh)"
+  _help_flag "-z <org/team>" "Add team to destination repo (repeatable)"
+
+  _help_header "Author Rewriting"
+  _help_flag "-N, --author-name <name>" "Override author name for all commits"
+  _help_flag "-E, --author-email <email>" "Override author email for all commits"
+  _help_flag "-n, --committer-name <name>" "Override committer name"
+  _help_flag "-e, --committer-email <email>" "Override committer email"
+  _help_flag "-C, --coauthor-action <act>" "Co-authored-by: claude|all|keep"
+  _help_cont "claude: remove Claude/Anthropic attribution only"
+  _help_cont "all: remove all Co-authored-by trailers"
+  _help_cont "keep: preserve all trailers (default)"
+  _help_flag "-D, --dry-run" "Preview changes without modifying anything"
+
+  _help_header "Logging & Debug"
+  _help_flag "-L, --log-level <level>" "debug|info|warning|error (default: info)"
+  _help_flag "-S, --skip-preflight" "Skip pre-flight validation checks"
+  _help_flag "-k" "Keep temp workspace for debugging"
+  _help_flag "-v" "Verbose output (sets log level to debug)"
+  _help_flag "-h" "Show this help"
+
+  echo
+  printf '%s"The life of a repo man is always intense."%s\n' "${_HELP_DIM}" "${_HELP_RESET}"
+  echo
 }
 
 # Rebase option related flags are mutually exclusive
