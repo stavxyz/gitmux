@@ -235,7 +235,7 @@ If any check fails, gitmux provides actionable error messages:
 [ERROR]   📂 gh cannot access this repository. This may be because:
 [ERROR]     - The repository doesn't exist (use -c to create it)
 [ERROR]     - You don't have permission to access it
-[ERROR]     - GH_TOKEN is set to a token without access (current: GH_TOKEN is set)
+[ERROR]     - GH_TOKEN is set to a token without access
 [ERROR]     - Try: unset GH_TOKEN && gh auth status
 
 [ERROR] ❌ Pre-flight checks failed. Aborting.
