@@ -38,6 +38,8 @@ HELPER_HEADER
         grep "^REPO_REGEX=" "${GITMUX_SCRIPT}"
         # check_filter_repo_available function
         sed -n '/^check_filter_repo_available() {/,/^}/p' "${GITMUX_SCRIPT}"
+        # _check_python_version function
+        sed -n '/^_check_python_version() {/,/^}/p' "${GITMUX_SCRIPT}"
         # get_filter_backend function
         sed -n '/^get_filter_backend() {/,/^}/p' "${GITMUX_SCRIPT}"
     } >> "${TEST_HELPER}"
