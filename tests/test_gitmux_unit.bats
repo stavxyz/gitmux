@@ -1505,3 +1505,151 @@ HELPER_HEADER
     [[ "$status" -ne 0 ]]
     [[ "$output" =~ "filter-repo" ]] && [[ "$output" =~ "not found" || "$output" =~ "not installed" || "$output" =~ "requested" ]]
 }
+
+# ============================================================================
+# Filter-repo E2E tests (skipped if filter-repo not installed)
+# ============================================================================
+
+@test "e2e: filter-repo author override changes commit author" {
+    # Skip if filter-repo not installed
+    if ! command -v git-filter-repo &>/dev/null; then
+        skip "git-filter-repo not installed"
+    fi
+
+    setup_local_repos
+
+    # Create source commit
+    cd "$E2E_TEST_DIR/source" || return 1
+    echo "content" > file.txt
+    git add .
+    git commit -m "Test commit"
+    git push origin main
+
+    # Run gitmux with filter-repo backend and author override
+    cd "$BATS_TEST_DIRNAME/.." || return 1
+    GITMUX_FILTER_BACKEND=filter-repo run bash -c "./gitmux.sh \
+        -r '$E2E_TEST_DIR/source' \
+        -t '$E2E_TEST_DIR/dest' \
+        -b main \
+        --author-name 'New Author' \
+        --author-email 'new@example.com' \
+        -k <<< 'y' 2>&1"
+
+    echo "gitmux output: $output" >&2
+
+    # Verify gitmux didn't fail
+    [[ ! "$output" =~ "errxit" ]]
+    [[ ! "$output" =~ "filter-repo failed" ]]
+
+    # Fetch the new branch
+    cd "$E2E_TEST_DIR/dest" || return 1
+    local branch_name
+    branch_name=$(git branch -a | grep "update-from-main" | head -1 | tr -d ' *')
+
+    [[ -n "$branch_name" ]] || { echo "No update-from-main branch found"; return 1; }
+
+    E2E_COMMIT_AUTHOR=$(git log -1 --format="%an <%ae>" "$branch_name" 2>/dev/null)
+    [[ "$E2E_COMMIT_AUTHOR" == "New Author <new@example.com>" ]]
+
+    teardown_local_repos
+}
+
+@test "e2e: filter-repo coauthor-action 'claude' removes Claude attribution" {
+    # Skip if filter-repo not installed
+    if ! command -v git-filter-repo &>/dev/null; then
+        skip "git-filter-repo not installed"
+    fi
+
+    setup_local_repos
+
+    # Create source commit with mixed co-authors
+    cd "$E2E_TEST_DIR/source" || return 1
+    echo "content" > file.txt
+    git add .
+    git commit -m "Test commit
+
+Co-authored-by: Human Dev <human@example.com>
+Co-authored-by: Claude <noreply@anthropic.com>
+Co-Authored-By: Claude Code <claude@anthropic.com>
+
+Generated with [Claude Code](https://claude.ai/code)"
+    git push origin main
+
+    # Run gitmux with filter-repo backend
+    cd "$BATS_TEST_DIRNAME/.." || return 1
+    GITMUX_FILTER_BACKEND=filter-repo run bash -c "./gitmux.sh \
+        -r '$E2E_TEST_DIR/source' \
+        -t '$E2E_TEST_DIR/dest' \
+        -b main \
+        --coauthor-action claude \
+        -k <<< 'y' 2>&1"
+
+    echo "gitmux output: $output" >&2
+
+    # Verify gitmux didn't fail
+    [[ ! "$output" =~ "errxit" ]]
+    [[ ! "$output" =~ "filter-repo failed" ]]
+
+    # Check the commit message
+    cd "$E2E_TEST_DIR/dest" || return 1
+    local branch_name
+    branch_name=$(git branch -a | grep "update-from-main" | head -1 | tr -d ' *')
+
+    [[ -n "$branch_name" ]] || { echo "No update-from-main branch found"; return 1; }
+
+    E2E_COMMIT_MSG=$(git log -1 --format="%B" "$branch_name" 2>/dev/null)
+
+    # Should preserve human co-author
+    [[ "$E2E_COMMIT_MSG" =~ "Co-authored-by: Human Dev" ]]
+    # Should remove Claude co-authors
+    [[ ! "$E2E_COMMIT_MSG" =~ "@anthropic.com" ]]
+    [[ ! "$E2E_COMMIT_MSG" =~ "Generated with" ]]
+
+    teardown_local_repos
+}
+
+@test "e2e: filter-repo with path mapping" {
+    # Skip if filter-repo not installed
+    if ! command -v git-filter-repo &>/dev/null; then
+        skip "git-filter-repo not installed"
+    fi
+
+    setup_local_repos
+
+    # Create source commit with a subdirectory
+    cd "$E2E_TEST_DIR/source" || return 1
+    mkdir -p src
+    echo "content" > src/file.txt
+    git add .
+    git commit -m "Add src directory"
+    git push origin main
+
+    # Run gitmux with filter-repo backend and path mapping
+    cd "$BATS_TEST_DIRNAME/.." || return 1
+    GITMUX_FILTER_BACKEND=filter-repo run bash -c "./gitmux.sh \
+        -r '$E2E_TEST_DIR/source' \
+        -t '$E2E_TEST_DIR/dest' \
+        -b main \
+        -m 'src:lib' \
+        -k <<< 'y' 2>&1"
+
+    echo "gitmux output: $output" >&2
+
+    # Verify gitmux didn't fail
+    [[ ! "$output" =~ "errxit" ]]
+    [[ ! "$output" =~ "filter-repo failed" ]]
+
+    # Check file exists at new path
+    cd "$E2E_TEST_DIR/dest" || return 1
+    local branch_name
+    branch_name=$(git branch -a | grep "update-from-main" | head -1 | tr -d ' *')
+
+    [[ -n "$branch_name" ]] || { echo "No update-from-main branch found"; return 1; }
+
+    git checkout "$branch_name" 2>/dev/null || git checkout -b test-branch "$branch_name"
+
+    # File should be at lib/file.txt (renamed from src/file.txt)
+    [[ -f "lib/file.txt" ]] || [[ -f "src/lib/file.txt" ]]
+
+    teardown_local_repos
+}
