@@ -21,6 +21,7 @@ gitmux extracts files or directories from a source repository into a destination
 - **Dry-Run Mode** - Preview all changes before modifying anything
 - **Pre-flight Checks** - Validates permissions and access before long-running operations
 - **Configurable Logging** - Debug, info, warning, or error log levels
+- **Color-Coded Help** - Categorized, scannable help with TTY-aware colors
 
 ## Installation
 
