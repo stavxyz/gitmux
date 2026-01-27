@@ -31,6 +31,7 @@ gitmux extracts files or directories from a source repository into a destination
 - Git
 - [GitHub CLI (`gh`)](https://cli.github.com/) - for `-s`, `-c`, `-z` flags
 - jq
+- [git-filter-repo](https://github.com/newren/git-filter-repo) (optional, recommended for ~10x speedup)
 
 ### Quick Install
 
@@ -181,6 +182,10 @@ Author Rewriting:
                                (default: claude when author options used, else keep)
   -D, --dry-run              Preview changes without modifying anything
 
+Filtering:
+  -F, --filter-backend <be>  Backend: filter-branch|filter-repo|auto
+                             (default: auto, env: GITMUX_FILTER_BACKEND)
+
 Logging & Debug:
   -L, --log-level <level>    debug|info|warning|error (default: info)
   -S, --skip-preflight       Skip pre-flight validation checks
@@ -201,6 +206,7 @@ All author/committer options can also be set via environment variables:
 | `--committer-email` | `GITMUX_COMMITTER_EMAIL` |
 | `--coauthor-action` | `GITMUX_COAUTHOR_ACTION` |
 | `--log-level` | `GITMUX_LOG_LEVEL` |
+| `--filter-backend` | `GITMUX_FILTER_BACKEND` |
 
 ## Pre-flight Checks
 
@@ -241,7 +247,7 @@ Use `--skip-preflight` to bypass these checks (advanced use only).
 ## How It Works
 
 1. **Clone** - gitmux clones the source repository to a temp workspace
-2. **Filter** - Uses `git filter-branch` to extract selected content
+2. **Filter** - Uses `git filter-repo` (if available) or `git filter-branch` to extract selected content
 3. **Rebase** - Rebases filtered history onto destination branch
 4. **Push** - Pushes to a feature branch (`update-from-<branch>-<sha>`)
 5. **PR** - Optionally creates a pull request via GitHub CLI
@@ -373,6 +379,43 @@ When automatic resolution isn't enough, use interactive mode to resolve conflict
 
 gitmux will pause and provide a `cd` command to enter the workspace. Resolve conflicts, complete the rebase, then push to the `destination` remote.
 
+## Filter Backend
+
+gitmux can use either `git filter-branch` (legacy, built-in) or `git filter-repo` (modern, ~10x faster) to rewrite history. By default, gitmux auto-detects and uses filter-repo if available.
+
+| Backend | Speed | Requirements |
+|---------|-------|--------------|
+| `filter-repo` | ~10x faster | Python 3.6+, [separate install](https://github.com/newren/git-filter-repo#how-do-i-install-it) |
+| `filter-branch` | Baseline | Built into git |
+
+### Installation
+
+```bash
+# macOS
+brew install git-filter-repo
+
+# Debian/Ubuntu
+apt install git-filter-repo
+
+# pip (any platform)
+pip install git-filter-repo
+```
+
+### Override Backend
+
+```bash
+# Force filter-branch (legacy)
+./gitmux.sh -r source -t dest --filter-backend filter-branch
+
+# Require filter-repo (error if not available)
+./gitmux.sh -r source -t dest --filter-backend filter-repo
+
+# Auto-detect (default)
+./gitmux.sh -r source -t dest --filter-backend auto
+```
+
+Or set via environment: `export GITMUX_FILTER_BACKEND=filter-repo`
+
 ## FAQ
 
 **Q: Why doesn't gitmux push directly to my destination branch?**
@@ -422,6 +465,10 @@ A: Use `-v` for verbose output (debug level), or set `--log-level debug` for max
 **Q: Why did gitmux fail before doing any work?**
 
 A: gitmux runs pre-flight checks to validate permissions and access before starting long-running operations. This prevents wasted time from failures late in the process. Check the error message for what's missing (e.g., repository access, branch existence). Use `--skip-preflight` to bypass these checks if you know what you're doing.
+
+**Q: How do I get faster performance?**
+
+A: Install git-filter-repo for ~10x speedup: `brew install git-filter-repo` (macOS) or `apt install git-filter-repo` (Debian/Ubuntu). gitmux auto-detects and uses it when available. See the [Filter Backend](#filter-backend) section for details.
 
 ## Contributing
 
