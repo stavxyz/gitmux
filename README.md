@@ -38,9 +38,6 @@ gitmux extracts files or directories from a source repository into a destination
 git clone https://github.com/stavxyz/gitmux.git
 cd gitmux
 
-# Make executable (if needed)
-chmod +x gitmux.sh
-
 # Verify installation
 ./gitmux.sh -h
 ```
