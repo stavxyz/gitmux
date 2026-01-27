@@ -320,6 +320,7 @@ for arg in "$@"; do
     '--dry-run')         set -- "$@" '-D' ;;
     '--log-level')       set -- "$@" '-L' ;;
     '--skip-preflight')  set -- "$@" '-S' ;;
+    '--filter-backend')  set -- "$@" '-F' ;;
     *)                   set -- "$@" "$arg" ;;
   esac
 done
@@ -341,6 +342,7 @@ CREATE_NEW_REPOSITORY="${CREATE_NEW_REPOSITORY:-false}"
 KEEP_TMP_WORKSPACE="${KEEP_TMP_WORKSPACE:-false}"
 DRY_RUN="${DRY_RUN:-false}"
 SKIP_PREFLIGHT="${SKIP_PREFLIGHT:-false}"
+GITMUX_FILTER_BACKEND="${GITMUX_FILTER_BACKEND:-auto}"
 
 # Don't default these rebase options *yet*
 MERGE_STRATEGY_OPTION_FOR_REBASE="${MERGE_STRATEGY_OPTION_FOR_REBASE:-theirs}"
@@ -544,6 +546,10 @@ function show_help()
   _help_cont "keep: preserve all trailers (default)"
   _help_flag "-D, --dry-run" "Preview changes without modifying anything"
 
+  _help_header "Filtering"
+  _help_flag "-F, --filter-backend <be>" "Backend: filter-branch|filter-repo|auto"
+  _help_cont "(default: auto, env: GITMUX_FILTER_BACKEND)"
+
   _help_header "Logging & Debug"
   _help_flag "-L, --log-level <level>" "debug|info|warning|error (default: info)"
   _help_flag "-S, --skip-preflight" "Skip pre-flight validation checks"
@@ -568,7 +574,7 @@ if [[ $# -eq 0 ]]; then
   exit 0
 fi
 
-while getopts "hvr:d:g:t:p:z:b:l:o:X:m:sickDSL:N:E:n:e:C:" OPT; do
+while getopts "hvr:d:g:t:p:z:b:l:o:X:m:sickDSL:N:E:n:e:C:F:" OPT; do
   case "$OPT" in
     r)  source_repository=$OPTARG
       ;;
@@ -619,6 +625,8 @@ while getopts "hvr:d:g:t:p:z:b:l:o:X:m:sickDSL:N:E:n:e:C:" OPT; do
       ;;
     C)  GITMUX_COAUTHOR_ACTION=$OPTARG
       ;;
+    F)  GITMUX_FILTER_BACKEND=$OPTARG
+      ;;
     h)  show_help && exit 0;;
     v)  _verbose=1
         LOG_LEVEL=debug
@@ -640,6 +648,12 @@ shift $((OPTIND-1))
 case "$LOG_LEVEL" in
   debug|info|warning|error) ;; # Valid values
   *) errxit "--log-level must be 'debug', 'info', 'warning', or 'error', got: ${LOG_LEVEL}" ;;
+esac
+
+# Validate filter backend value
+case "$GITMUX_FILTER_BACKEND" in
+  auto|filter-repo|filter-branch) ;; # Valid values
+  *) errxit "--filter-backend must be 'auto', 'filter-repo', or 'filter-branch', got: ${GITMUX_FILTER_BACKEND}" ;;
 esac
 
 if [[ -z "$source_repository" ]]; then
