@@ -216,3 +216,107 @@ clean:
     rm -rf .venv .mypy_cache .ruff_cache .pytest_cache __pycache__ .coverage
     find . -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true
     find . -type f -name '*.pyc' -delete 2>/dev/null || true
+
+# ============================================================================
+# GitHub Pages & Cloudflare
+# ============================================================================
+
+# Enable GitHub Pages on /docs folder
+pages-enable:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "Enabling GitHub Pages..."
+    gh api -X PUT repos/stavxyz/gitmux/pages \
+        -f source='{"branch":"main","path":"/docs"}' \
+        --silent || true
+    echo "GitHub Pages enabled at /docs"
+    gh api repos/stavxyz/gitmux/pages --jq '.html_url // "pending..."'
+
+# Set custom domain for GitHub Pages
+pages-domain domain="gitmux.com":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "Setting custom domain to {{domain}}..."
+    gh api -X PUT repos/stavxyz/gitmux/pages \
+        -f cname="{{domain}}" \
+        --silent
+    echo "Custom domain set. Configure DNS at Cloudflare."
+
+# Show GitHub Pages status
+pages-status:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    gh api repos/stavxyz/gitmux/pages --jq '{
+        url: .html_url,
+        cname: .cname,
+        https_enforced: .https_enforced,
+        status: .status,
+        build_type: .build_type
+    }'
+
+# Set up Cloudflare DNS for gitmux.com (requires CLOUDFLARE_API_TOKEN)
+cloudflare-dns-setup:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    if [[ -z "${CLOUDFLARE_API_TOKEN:-}" ]]; then
+        echo "Error: CLOUDFLARE_API_TOKEN not set"
+        exit 1
+    fi
+
+    # Get zone ID for gitmux.com
+    echo "Getting zone ID for gitmux.com..."
+    ZONE_ID=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones?name=gitmux.com" \
+        -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+        -H "Content-Type: application/json" | jq -r '.result[0].id')
+
+    if [[ -z "$ZONE_ID" || "$ZONE_ID" == "null" ]]; then
+        echo "Error: Could not find zone for gitmux.com"
+        exit 1
+    fi
+    echo "Zone ID: $ZONE_ID"
+
+    # GitHub Pages IPs (A records)
+    GITHUB_IPS=("185.199.108.153" "185.199.109.153" "185.199.110.153" "185.199.111.153")
+
+    # Create A records (or update if exist)
+    for ip in "${GITHUB_IPS[@]}"; do
+        echo "Adding A record: gitmux.com -> $ip"
+        curl -s -X POST "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/dns_records" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data "{\"type\":\"A\",\"name\":\"gitmux.com\",\"content\":\"$ip\",\"ttl\":1,\"proxied\":false}" \
+            | jq -r 'if .success then "  ✓ Added" else "  ✗ \(.errors[0].message // "Failed")" end'
+    done
+
+    # Create CNAME for www
+    echo "Adding CNAME: www.gitmux.com -> stavxyz.github.io"
+    curl -s -X POST "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/dns_records" \
+        -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+        -H "Content-Type: application/json" \
+        --data '{"type":"CNAME","name":"www","content":"stavxyz.github.io","ttl":1,"proxied":false}' \
+        | jq -r 'if .success then "  ✓ Added" else "  ✗ \(.errors[0].message // "Failed")" end'
+
+    echo ""
+    echo "DNS setup complete. It may take a few minutes to propagate."
+    echo "Then run: just pages-enable && just pages-domain"
+
+# Show Cloudflare DNS records for gitmux.com
+cloudflare-dns-list:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    if [[ -z "${CLOUDFLARE_API_TOKEN:-}" ]]; then
+        echo "Error: CLOUDFLARE_API_TOKEN not set"
+        exit 1
+    fi
+
+    ZONE_ID=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones?name=gitmux.com" \
+        -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+        -H "Content-Type: application/json" | jq -r '.result[0].id')
+
+    echo "DNS records for gitmux.com:"
+    curl -s -X GET "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/dns_records" \
+        -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+        -H "Content-Type: application/json" \
+        | jq -r '.result[] | "\(.type)\t\(.name)\t\(.content)"'
