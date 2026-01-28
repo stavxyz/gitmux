@@ -1,5 +1,5 @@
 <script>
-// Theme toggle - runs after DOM is loaded
+// Theme toggle - wrapped in DOMContentLoaded to ensure DOM is ready
 (function() {
   var STORAGE_KEY = 'jtd-theme';
 
@@ -22,24 +22,33 @@
     }
   }
 
-  // Find all theme toggle links and convert them
-  var themeLinks = document.querySelectorAll('a[href="#theme-toggle"]');
-  for (var i = 0; i < themeLinks.length; i++) {
-    var link = themeLinks[i];
-    link.textContent = getTheme() === 'dark' ? 'Light' : 'Dark';
-    link.href = 'javascript:void(0)';
-    link.onclick = function(e) {
-      e.preventDefault();
-      var newTheme = getTheme() === 'dark' ? 'light' : 'dark';
-      setTheme(newTheme);
-      // Update all toggle links
-      var allLinks = document.querySelectorAll('a[href="javascript:void(0)"]');
-      for (var j = 0; j < allLinks.length; j++) {
-        if (allLinks[j].textContent === 'Light' || allLinks[j].textContent === 'Dark') {
-          allLinks[j].textContent = newTheme === 'dark' ? 'Light' : 'Dark';
+  function initToggle() {
+    var themeLinks = document.querySelectorAll('a[href="#theme-toggle"]');
+    for (var i = 0; i < themeLinks.length; i++) {
+      var link = themeLinks[i];
+      link.textContent = getTheme() === 'dark' ? 'Light' : 'Dark';
+      link.href = 'javascript:void(0)';
+      link.onclick = function(e) {
+        e.preventDefault();
+        var newTheme = getTheme() === 'dark' ? 'light' : 'dark';
+        setTheme(newTheme);
+        // Update all toggle links
+        var allLinks = document.querySelectorAll('a[href="javascript:void(0)"]');
+        for (var j = 0; j < allLinks.length; j++) {
+          if (allLinks[j].textContent === 'Light' || allLinks[j].textContent === 'Dark') {
+            allLinks[j].textContent = newTheme === 'dark' ? 'Light' : 'Dark';
+          }
         }
-      }
-    };
+      };
+    }
+  }
+
+  // Run when DOM is ready
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initToggle);
+  } else {
+    // DOM already loaded
+    initToggle();
   }
 })();
 </script>
