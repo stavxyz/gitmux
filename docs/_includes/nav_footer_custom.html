@@ -1,23 +1,39 @@
-<button id="theme-toggle" class="js-toggle-dark-mode">Light</button>
+<button id="theme-toggle">Light</button>
 <script>
 (function() {
+  var STORAGE_KEY = 'jtd-theme';
   var toggle = document.getElementById('theme-toggle');
 
+  function getTheme() {
+    return localStorage.getItem(STORAGE_KEY) || 'dark';
+  }
+
+  function setTheme(theme) {
+    localStorage.setItem(STORAGE_KEY, theme);
+    var links = document.getElementsByTagName('link');
+    for (var i = 0; i < links.length; i++) {
+      var href = links[i].href;
+      if (href && href.indexOf('just-the-docs-') !== -1 && href.indexOf('.css') !== -1) {
+        if (theme === 'dark') {
+          links[i].href = href.replace('just-the-docs-default', 'just-the-docs-dark');
+        } else {
+          links[i].href = href.replace('just-the-docs-dark', 'just-the-docs-default');
+        }
+      }
+    }
+  }
+
   function updateButton() {
-    var isDark = jtd.getTheme() === 'dark';
-    toggle.textContent = isDark ? 'Light' : 'Dark';
+    toggle.textContent = getTheme() === 'dark' ? 'Light' : 'Dark';
   }
 
   // Initialize button text
   updateButton();
 
   // Handle click
-  jtd.addEvent(toggle, 'click', function() {
-    if (jtd.getTheme() === 'dark') {
-      jtd.setTheme('light');
-    } else {
-      jtd.setTheme('dark');
-    }
+  toggle.addEventListener('click', function() {
+    var newTheme = getTheme() === 'dark' ? 'light' : 'dark';
+    setTheme(newTheme);
     updateButton();
   });
 })();
