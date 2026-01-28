@@ -1,0 +1,24 @@
+<button id="theme-toggle" class="js-toggle-dark-mode">Light</button>
+<script>
+(function() {
+  var toggle = document.getElementById('theme-toggle');
+
+  function updateButton() {
+    var isDark = jtd.getTheme() === 'dark';
+    toggle.textContent = isDark ? 'Light' : 'Dark';
+  }
+
+  // Initialize button text
+  updateButton();
+
+  // Handle click
+  jtd.addEvent(toggle, 'click', function() {
+    if (jtd.getTheme() === 'dark') {
+      jtd.setTheme('light');
+    } else {
+      jtd.setTheme('dark');
+    }
+    updateButton();
+  });
+})();
+</script>
