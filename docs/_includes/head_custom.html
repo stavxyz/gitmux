@@ -1,56 +1,19 @@
 <script>
-// Theme toggle
+// Swap stylesheet to dark mode before page renders
 (function() {
   var STORAGE_KEY = 'jtd-theme';
-
-  function getTheme() {
-    return localStorage.getItem(STORAGE_KEY) || 'dark';
+  var saved = localStorage.getItem(STORAGE_KEY) || 'dark';
+  if (!localStorage.getItem(STORAGE_KEY)) {
+    localStorage.setItem(STORAGE_KEY, 'dark');
   }
-
-  function setTheme(theme) {
-    localStorage.setItem(STORAGE_KEY, theme);
+  if (saved === 'dark') {
     var links = document.getElementsByTagName('link');
     for (var i = 0; i < links.length; i++) {
       var href = links[i].href;
-      if (href && href.indexOf('just-the-docs-') !== -1 && href.indexOf('.css') !== -1) {
-        if (theme === 'dark') {
-          links[i].href = href.replace('just-the-docs-default', 'just-the-docs-dark');
-        } else {
-          links[i].href = href.replace('just-the-docs-dark', 'just-the-docs-default');
-        }
-      }
-    }
-  }
-
-  // Swap stylesheet immediately on page load
-  var saved = getTheme();
-  if (!localStorage.getItem(STORAGE_KEY)) {
-    localStorage.setItem(STORAGE_KEY, 'dark');
-    saved = 'dark';
-  }
-  var links = document.getElementsByTagName('link');
-  for (var i = 0; i < links.length; i++) {
-    var href = links[i].href;
-    if (href && href.indexOf('just-the-docs-') !== -1 && href.indexOf('.css') !== -1) {
-      if (saved === 'dark') {
+      if (href && href.indexOf('just-the-docs-default') !== -1) {
         links[i].href = href.replace('just-the-docs-default', 'just-the-docs-dark');
       }
     }
   }
-
-  // Convert "Theme" link to working toggle after DOM loads
-  document.addEventListener('DOMContentLoaded', function() {
-    var themeLink = document.querySelector('a[href="#theme-toggle"]');
-    if (themeLink) {
-      themeLink.textContent = getTheme() === 'dark' ? 'Light' : 'Dark';
-      themeLink.href = '#';
-      themeLink.addEventListener('click', function(e) {
-        e.preventDefault();
-        var newTheme = getTheme() === 'dark' ? 'light' : 'dark';
-        setTheme(newTheme);
-        themeLink.textContent = newTheme === 'dark' ? 'Light' : 'Dark';
-      });
-    }
-  });
 })();
 </script>
