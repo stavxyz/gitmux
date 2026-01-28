@@ -187,7 +187,7 @@ docker-push:
 
 # List gitmux Docker images
 docker-ls:
-    @docker images --no-trunc --format '{{json .}}' | \
+    @docker images --no-trunc --format '{{"{{json .}}"}}' | \
         jq -r 'select((.Repository|contains("gitmux")))' | \
         jq -rs 'sort_by(.Repository)|.[]|"\(.ID)\t\(.Repository):\(.Tag)\t(\(.CreatedSince))\t[\(.Size)]"'
 
