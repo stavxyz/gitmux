@@ -187,10 +187,7 @@ docker-push:
 
 # List gitmux Docker images
 docker-ls:
-    #!/usr/bin/env bash
-    docker images --no-trunc --format '{{json .}}' | \
-        jq -r 'select((.Repository|contains("gitmux")))' | \
-        jq -rs 'sort_by(.Repository)|.[]|"\(.ID)\t\(.Repository):\(.Tag)\t(\(.CreatedSince))\t[\(.Size)]"'
+    @docker images --filter "reference=*gitmux*"
 
 # ============================================================================
 # Cleanup
@@ -222,38 +219,23 @@ clean:
 # GitHub Pages & Cloudflare
 # ============================================================================
 
-# Enable GitHub Pages on /docs folder
+# Enable GitHub Pages - must be done via web UI
+# Go to: https://github.com/stavxyz/gitmux/settings/pages
+# Source: Deploy from branch, main, /docs folder
 pages-enable:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    echo "Enabling GitHub Pages..."
-    gh api -X PUT repos/stavxyz/gitmux/pages \
-        -f source='{"branch":"main","path":"/docs"}' \
-        --silent || true
-    echo "GitHub Pages enabled at /docs"
-    gh api repos/stavxyz/gitmux/pages --jq '.html_url // "pending..."'
-
-# Set custom domain for GitHub Pages
-pages-domain domain="gitmux.com":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    echo "Setting custom domain to {{domain}}..."
-    gh api -X PUT repos/stavxyz/gitmux/pages \
-        -f cname="{{domain}}" \
-        --silent
-    echo "Custom domain set. Configure DNS at Cloudflare."
+    @echo "GitHub Pages must be enabled via web UI (API token lacks permission)"
+    @echo "Go to: https://github.com/stavxyz/gitmux/settings/pages"
+    @echo "  1. Source: Deploy from a branch"
+    @echo "  2. Branch: main"
+    @echo "  3. Folder: /docs"
+    @echo "  4. Save"
+    @open "https://github.com/stavxyz/gitmux/settings/pages" 2>/dev/null || true
 
 # Show GitHub Pages status
 pages-status:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    gh api repos/stavxyz/gitmux/pages --jq '{
-        url: .html_url,
-        cname: .cname,
-        https_enforced: .https_enforced,
-        status: .status,
-        build_type: .build_type
-    }'
+    @gh api repos/stavxyz/gitmux/pages 2>/dev/null \
+        && gh api repos/stavxyz/gitmux/pages --jq '{url: .html_url, cname: .cname, status: .status}' \
+        || echo "Pages not enabled yet. Run: just pages-enable"
 
 # Set up Cloudflare DNS for gitmux.com (requires CLOUDFLARE_API_TOKEN)
 cloudflare-dns-setup:
