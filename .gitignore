@@ -5,3 +5,9 @@
 .claude/state/
 .claude/logs/
 .claude/.backup/
+
+# Jekyll/docs local build artifacts
+docs/_site/
+docs/.jekyll-cache/
+docs/.jekyll-metadata
+docs/Gemfile.lock

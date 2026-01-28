@@ -216,6 +216,38 @@ clean:
     find . -type f -name '*.pyc' -delete 2>/dev/null || true
 
 # ============================================================================
+# Documentation (local development)
+# ============================================================================
+
+# Serve docs locally with Jekyll (Docker)
+docs-serve:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "Starting Jekyll server for docs..."
+    echo "Note: First run takes a few minutes to install gems"
+    docker rm -f gitmux-docs 2>/dev/null || true
+    docker run -d \
+        --name gitmux-docs \
+        -v "$(pwd)/docs:/srv/jekyll" \
+        -p 4000:4000 \
+        jekyll/jekyll:4 \
+        sh -c "cd /srv/jekyll && bundle install && bundle exec jekyll serve --host 0.0.0.0"
+    echo "Waiting for Jekyll to start..."
+    echo "Run 'just docs-logs' to watch progress"
+    echo "Site will be at: http://localhost:4000"
+
+# Show docs server logs
+docs-logs:
+    docker logs -f gitmux-docs
+
+# Stop docs server
+docs-stop:
+    docker stop gitmux-docs 2>/dev/null && docker rm gitmux-docs 2>/dev/null || echo "No docs server running"
+
+# Rebuild docs (after config changes)
+docs-rebuild: docs-stop docs-serve
+
+# ============================================================================
 # GitHub Pages & Cloudflare
 # ============================================================================
 
