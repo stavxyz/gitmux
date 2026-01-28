@@ -1,7 +1,7 @@
 # gitmux
 
 [![CI](https://github.com/stavxyz/gitmux/actions/workflows/ci.yml/badge.svg)](https://github.com/stavxyz/gitmux/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![License: GPL v3](https://img.shields.io/badge/license-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Docs](https://img.shields.io/badge/docs-gitmux.com-blue)](https://gitmux.com)
 
 **Extract files from one repo to another while preserving full git history.**
@@ -105,7 +105,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
 
 ## License
 
-[MIT](LICENSE) — Do whatever you want, just keep the copyright notice.
+[GPL-3.0](LICENSE) — Free software. Share improvements.
 
 ---
 
