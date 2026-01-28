@@ -1,54 +1,39 @@
 <script>
-// Theme toggle - wrapped in DOMContentLoaded to ensure DOM is ready
-(function() {
-  var STORAGE_KEY = 'jtd-theme';
+var STORAGE_KEY = 'jtd-theme';
 
-  function getTheme() {
-    return localStorage.getItem(STORAGE_KEY) || 'dark';
-  }
+function getTheme() {
+  return localStorage.getItem(STORAGE_KEY) || 'dark';
+}
 
-  function setTheme(theme) {
-    localStorage.setItem(STORAGE_KEY, theme);
-    var links = document.getElementsByTagName('link');
-    for (var i = 0; i < links.length; i++) {
-      var href = links[i].href;
-      if (href && href.indexOf('just-the-docs-') !== -1 && href.indexOf('.css') !== -1) {
-        if (theme === 'dark') {
-          links[i].href = href.replace('just-the-docs-default', 'just-the-docs-dark');
-        } else {
-          links[i].href = href.replace('just-the-docs-dark', 'just-the-docs-default');
-        }
-      }
+function setTheme(theme) {
+  localStorage.setItem(STORAGE_KEY, theme);
+  var links = document.getElementsByTagName('link');
+  for (var i = 0; i < links.length; i++) {
+    var href = links[i].href;
+    if (theme === 'dark' && href.indexOf('just-the-docs-default') !== -1) {
+      links[i].href = href.replace('just-the-docs-default', 'just-the-docs-dark');
+    } else if (theme === 'light' && href.indexOf('just-the-docs-dark') !== -1) {
+      links[i].href = href.replace('just-the-docs-dark', 'just-the-docs-default');
     }
   }
+}
 
-  function initToggle() {
-    var themeLinks = document.querySelectorAll('a[href="#theme-toggle"]');
-    for (var i = 0; i < themeLinks.length; i++) {
-      var link = themeLinks[i];
-      link.textContent = getTheme() === 'dark' ? 'Light' : 'Dark';
-      link.href = 'javascript:void(0)';
-      link.onclick = function(e) {
-        e.preventDefault();
-        var newTheme = getTheme() === 'dark' ? 'light' : 'dark';
-        setTheme(newTheme);
-        // Update all toggle links
-        var allLinks = document.querySelectorAll('a[href="javascript:void(0)"]');
-        for (var j = 0; j < allLinks.length; j++) {
-          if (allLinks[j].textContent === 'Light' || allLinks[j].textContent === 'Dark') {
-            allLinks[j].textContent = newTheme === 'dark' ? 'Light' : 'Dark';
-          }
-        }
-      };
-    }
-  }
+var themeLinks = document.querySelectorAll('a[href="#theme-toggle"]');
 
-  // Run when DOM is ready
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initToggle);
-  } else {
-    // DOM already loaded
-    initToggle();
-  }
-})();
+for (var i = 0; i < themeLinks.length; i++) {
+  var link = themeLinks[i];
+  link.style.cssText = 'cursor:pointer; border:1px solid currentColor; border-radius:4px; padding:2px 8px;';
+  link.title = 'Toggle light/dark theme';
+  var currentTheme = getTheme();
+  link.textContent = currentTheme === 'dark' ? 'Light' : 'Dark';
+  link.href = 'javascript:void(0)';
+  link.addEventListener('click', function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    var curr = getTheme();
+    var next = curr === 'dark' ? 'light' : 'dark';
+    setTheme(next);
+    this.textContent = next === 'dark' ? 'Light' : 'Dark';
+  });
+}
 </script>

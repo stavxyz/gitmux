@@ -21,8 +21,6 @@ aux_links:
 # Footer
 footer_content: "gitmux is <a href=\"https://github.com/stavxyz/gitmux/blob/main/LICENSE\">GPL-3.0 licensed</a>."
 
-# Color scheme - dark by default with toggle
-color_scheme: dark
 
 # Navigation
 nav_sort: case_insensitive
