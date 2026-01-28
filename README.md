@@ -1,150 +1,72 @@
 # gitmux
 
-**Sync repository subsets while preserving full git history.**
+[![CI](https://github.com/stavxyz/gitmux/actions/workflows/ci.yml/badge.svg)](https://github.com/stavxyz/gitmux/actions/workflows/ci.yml)
+[![License: Unlicense](https://img.shields.io/badge/license-Unlicense-blue.svg)](http://unlicense.org/)
 
-If you've ever thought "I wish this were a separate repo", you've come to the right place.
-
-## Overview
-
-gitmux extracts files or directories from a source repository into a destination repository while maintaining complete commit history and tags. Unlike copy-paste, gitmux preserves the full provenance of your code.
-
-### Key Features
-
-- **History Preservation** - Maintains complete commit history for synced content
-- **Selective Extraction** - Fork entire repos or just specific files/directories
-- **Multi-Path Migration** - Sync multiple directories in a single operation with `-m`
-- **Safe by Design** - Changes go through pull requests, never direct pushes
-- **Repeatable** - Run multiple times to sync incremental updates
-- **Flexible Rebase** - Multiple strategies for conflict resolution ([see below](#rebase-strategies))
-- **Author Rewriting** - Override commit author/committer across entire history
-- **AI Attribution Cleanup** - Remove Claude/Anthropic co-author trailers while preserving human contributors
-- **Dry-Run Mode** - Preview all changes before modifying anything
-- **Pre-flight Checks** - Validates permissions and access before long-running operations
-- **Configurable Logging** - Debug, info, warning, or error log levels
-- **Color-Coded Help** - Categorized, scannable help with TTY-aware colors
-
-## Installation
-
-### Prerequisites
-
-- Bash 4.0+
-- Git
-- [GitHub CLI (`gh`)](https://cli.github.com/) - for `-s`, `-c`, `-z` flags
-- jq
-- [git-filter-repo](https://github.com/newren/git-filter-repo) (optional, recommended for ~10x speedup)
-  - Requires Python 3.6+ when using the filter-repo backend
-
-### Quick Install
+**Extract files from one repo to another while preserving full git history.**
 
 ```bash
-# Clone the repository
+# Extract packages/auth from a monorepo into its own repo
+./gitmux.sh -r github.com/company/monorepo -t github.com/company/auth-lib -d packages/auth -s
+```
+
+Every commit, every blame, every bisect — preserved.
+
+---
+
+## Why gitmux?
+
+- **Full history** — Not a copy-paste. Every commit follows the code.
+- **PR-based** — Changes go through pull requests, never direct pushes.
+- **10x faster** — Auto-uses [git-filter-repo](https://github.com/newren/git-filter-repo) when available.
+- **Multi-path** — Migrate multiple directories in one operation.
+
+## Install
+
+```bash
 git clone https://github.com/stavxyz/gitmux.git
-cd gitmux
-
-# Verify installation
-./gitmux.sh -h
+cd gitmux && ./gitmux.sh -h
 ```
 
-### Docker
-
-```bash
-# Build the image
-just docker-build
-
-# Run interactively
-just docker-run
-```
+**Optional** (10x speedup): `brew install git-filter-repo` or `pip install git-filter-repo`
 
 ## Quick Start
 
-### Basic Sync (Full Repository)
-
-```bash
-./gitmux.sh \
-  -r https://github.com/source-owner/source-repo \
-  -t https://github.com/dest-owner/dest-repo \
-  -s  # Submit PR automatically
-```
-
-### Extract a Subdirectory
+### Extract a subdirectory
 
 ```bash
 ./gitmux.sh \
   -r https://github.com/source-owner/monorepo \
   -t https://github.com/dest-owner/extracted-lib \
   -d packages/my-library \
-  -s
+  -s  # Submit PR automatically
 ```
 
-### Extract Specific Files
+### Migrate multiple paths
 
 ```bash
 ./gitmux.sh \
-  -r https://github.com/source-owner/source-repo \
-  -t https://github.com/dest-owner/dest-repo \
-  -l '--all -- src/utils.py src/helpers.py' \
-  -s
-```
-
-### Migrate Multiple Directories
-
-Sync multiple source paths to different destinations in one operation:
-
-```bash
-./gitmux.sh \
-  -r https://github.com/source-owner/monorepo \
-  -t https://github.com/dest-owner/dest-repo \
+  -r https://github.com/source/monorepo \
+  -t https://github.com/dest/new-repo \
   -m 'src/lib:packages/lib' \
   -m 'tests/lib:packages/lib/tests' \
   -s
 ```
 
-This creates a single PR with both paths migrated, preserving history for each.
-
-### Create Destination if Missing
+### Rewrite authorship
 
 ```bash
 ./gitmux.sh \
-  -r https://github.com/source-owner/source-repo \
-  -t https://github.com/dest-owner/new-repo \
-  -c  # Create destination repo
-  -s
-```
-
-### Override Author and Clean Up AI Attribution
-
-When syncing AI-assisted code, you may want to rewrite authorship and remove AI co-author trailers:
-
-```bash
-./gitmux.sh \
-  -r https://github.com/source-owner/source-repo \
-  -t https://github.com/dest-owner/dest-repo \
+  -r source -t dest \
   --author-name "Your Name" \
   --author-email "you@example.com" \
   --coauthor-action claude \
   -s
 ```
 
-This rewrites all commits to show you as the author while removing Claude/Anthropic `Co-authored-by` and `Generated with` lines (human co-authors are preserved).
-
-### Preview Changes with Dry-Run
-
-Before running a sync, preview what would happen:
-
-```bash
-./gitmux.sh \
-  -r https://github.com/source-owner/source-repo \
-  -t https://github.com/dest-owner/dest-repo \
-  --author-name "Your Name" \
-  --author-email "you@example.com" \
-  --dry-run
-```
-
-This shows you exactly which commits would be affected and what changes would be made, without modifying anything.
+Removes AI attribution while preserving human co-authors.
 
 ## Usage
-
-Run `./gitmux.sh` with no arguments to see the full help with colored output.
 
 ```
 gitmux.sh -r SOURCE -t DESTINATION [OPTIONS]
@@ -155,328 +77,152 @@ Required:
 
 Path Filtering:
   -m <src:dest>              Map source path to destination (repeatable)
-                             Use \: for literal colons. Empty or '.' means root
-  -d <path>                  Extract only this subdirectory from source
-  -p <path>                  Place content at this path in destination
-  -g <ref>                   Source git ref: branch, tag, or commit
-  -l <rev-list>              Extract specific files (git rev-list format)
+  -d <path>                  Extract subdirectory from source
+  -p <path>                  Place content at path in destination
+  -l <rev-list>              Extract specific files
 
 Destination:
-  -b <branch>                Target branch in destination (default: trunk)
-  -c                         Create destination repo if missing (requires gh)
+  -b <branch>                Target branch (default: main/master)
+  -c                         Create destination repo if missing
 
 Rebase:
-  -X <strategy>              Strategy: theirs|ours|patience (default: theirs)
-  -o <options>               Custom git rebase options (mutex with -X)
+  -X <strategy>              theirs|ours|patience (default: theirs)
   -i                         Interactive rebase mode
 
 GitHub Integration:
-  -s                         Submit PR automatically (requires gh)
-  -z <org/team>              Add team to destination repo (repeatable)
+  -s                         Submit PR automatically
+  -z <org/team>              Add team to destination repo
 
 Author Rewriting:
-  -N, --author-name <name>   Override author name for all commits
-  -E, --author-email <email> Override author email for all commits
-  -n, --committer-name <name>  Override committer name
-  -e, --committer-email <email> Override committer email
-  -C, --coauthor-action <act>  Co-authored-by: claude|all|keep
-                               (default: claude when author options used, else keep)
-  -D, --dry-run              Preview changes without modifying anything
+  --author-name <name>       Override author name
+  --author-email <email>     Override author email
+  --coauthor-action <act>    claude|all|keep (remove co-author trailers)
+  --dry-run                  Preview without changes
 
 Filtering:
-  -F, --filter-backend <be>  Backend: filter-branch|filter-repo|auto
-                             (default: auto, env: GITMUX_FILTER_BACKEND)
+  --filter-backend <be>      filter-branch|filter-repo|auto
 
-Logging & Debug:
-  -L, --log-level <level>    debug|info|warning|error (default: info)
-  -S, --skip-preflight       Skip pre-flight validation checks
-  -k                         Keep temp workspace for debugging
-  -v                         Verbose output (sets log level to debug)
-  -h                         Show this help
+Logging:
+  --log-level <level>        debug|info|warning|error
+  -v                         Verbose (debug level)
+  -h                         Show help
 ```
 
 ### Environment Variables
 
-All author/committer options can also be set via environment variables:
-
-| Option | Environment Variable |
-|--------|---------------------|
+| CLI Option | Environment Variable |
+|------------|---------------------|
 | `--author-name` | `GITMUX_AUTHOR_NAME` |
 | `--author-email` | `GITMUX_AUTHOR_EMAIL` |
-| `--committer-name` | `GITMUX_COMMITTER_NAME` |
-| `--committer-email` | `GITMUX_COMMITTER_EMAIL` |
 | `--coauthor-action` | `GITMUX_COAUTHOR_ACTION` |
-| `--log-level` | `GITMUX_LOG_LEVEL` |
 | `--filter-backend` | `GITMUX_FILTER_BACKEND` |
-
-## Pre-flight Checks
-
-Before starting any long-running operations (cloning, filter-branch, rebase), gitmux validates that everything is in place:
-
-```
-[INFO] 🔍 Running pre-flight checks...
-  ✅ git installed
-  ✅ gh CLI installed
-  ✅ gh authenticated (yourname)
-  ✅ source repo accessible
-  ✅ destination repo accessible with push access
-  ✅ destination branch exists (main)
-[INFO] ✅ All pre-flight checks passed!
-```
-
-If any check fails, gitmux provides actionable error messages:
-
-```
-[INFO] 🔍 Running pre-flight checks...
-  ✅ git installed
-  ✅ gh CLI installed
-  ✅ gh authenticated (yourname)
-  ✅ source repo accessible
-  ❌ destination repo not accessible
-
-[ERROR]   📂 gh cannot access this repository. This may be because:
-[ERROR]     - The repository doesn't exist (use -c to create it)
-[ERROR]     - You don't have permission to access it
-[ERROR]     - GH_TOKEN is set to a token without access
-[ERROR]     - Try: unset GH_TOKEN && gh auth status
-
-[ERROR] ❌ Pre-flight checks failed. Aborting.
-```
-
-Use `--skip-preflight` to bypass these checks (advanced use only).
+| `--log-level` | `GITMUX_LOG_LEVEL` |
 
 ## How It Works
 
-1. **Clone** - gitmux clones the source repository to a temp workspace
-2. **Filter** - Uses `git filter-repo` (if available) or `git filter-branch` to extract selected content
-3. **Rebase** - Rebases filtered history onto destination branch
-4. **Push** - Pushes to a feature branch (`update-from-<branch>-<sha>`)
-5. **PR** - Optionally creates a pull request via GitHub CLI
-6. **Cleanup** - Removes temp workspace
-
 ```
-┌─────────────┐    filter-branch    ┌─────────────┐
-│   Source    │ ─────────────────▶  │   Filtered  │
-│ Repository  │                     │   Content   │
-└─────────────┘                     └──────┬──────┘
-                                           │
-                                      rebase onto
-                                           │
-                                           ▼
-┌─────────────┐    pull request     ┌─────────────┐
-│ Destination │ ◀───────────────── │   Feature   │
-│   Branch    │                     │   Branch    │
-└─────────────┘                     └─────────────┘
+┌─────────────┐                      ┌─────────────┐
+│   Source    │ ──── filter ────▶    │   Filtered  │
+│ Repository  │                      │   Content   │
+└─────────────┘                      └──────┬──────┘
+                                            │
+                                       rebase onto
+                                            │
+                                            ▼
+┌─────────────┐                      ┌─────────────┐
+│ Destination │ ◀── pull request ── │   Feature   │
+│   Branch    │                      │   Branch    │
+└─────────────┘                      └─────────────┘
 ```
 
-## Who Is This For?
-
-- **Monorepo extractors** - Fork a subset into a standalone repo
-- **Gist upgraders** - Turn a GitHub gist into a full repository
-- **History preservers** - Redo a copy-paste with proper git history
-- **Git power users** - Explore rebase strategies and conflict resolution
-- **Automation bots** - Keep downstream mirrors in sync via PRs
-
-## Rebase Strategies
-
-When gitmux rebases the source history onto the destination, conflicts can occur if the same lines were changed in both places. The `-X` option controls how these conflicts are resolved automatically.
-
-**Why `theirs` is the default:** When you run gitmux, your intent is to get content from the source. If conflicts occur and source changes are dropped (as with `ours`), you might never notice—the PR shows what was added, not what *should have been* added. But if destination changes are dropped (as with `theirs`), those deletions appear in the PR diff, giving you a chance to catch them before merging. Override with `-X ours` if your destination has changes you want to protect.
-
-### Understanding the Strategies
-
-| Strategy | When a conflict occurs... | Best for |
-|----------|--------------------------|----------|
-| `theirs` (default) | Keep the source's version | Most syncs — you want the source content |
-| `ours` | Keep the destination's version | Protecting local destination changes |
-| `patience` | Use smarter diff algorithm | Cleaner diffs with moved/refactored code |
-| `diff-algorithm=<algo>` | Change how diffs are computed | Fine-tuning diff quality (histogram, minimal, myers) |
-
-### `-X theirs` (Default)
-
-**"When in doubt, take what's coming from the source."**
-
-This is the default because it aligns with user intent: when you run gitmux, you're trying to get content from the source repository.
-
-```bash
-./gitmux.sh -r source -t dest           # uses theirs by default
-./gitmux.sh -r source -t dest -X theirs # explicit
-```
-
-**Why this default?** If conflicts are resolved by keeping the source's version, any overwritten destination content will be **visible in the PR diff**. You'll see lines being removed from destination files, giving you a chance to review before merging. This is better than the alternative (`ours`), where dropped source changes are invisible—you'd never know they were supposed to be there.
-
-**Example:** The monorepo's `utils.py` has important upstream fixes. With `theirs`, gitmux takes the source's version of conflicting lines—upstream changes come through as expected.
-
-### `-X ours`
-
-**"When in doubt, keep what's already in the destination."**
-
-Use this when your destination has intentional local changes you want to protect, and you're selectively pulling from source.
-
-```bash
-./gitmux.sh -r source -t dest -X ours
-```
-
-**Caution:** With `ours`, conflicting source changes are silently dropped. The PR will show what was added, but won't show what *should have been* added but wasn't. Use this only when you're confident destination changes should take precedence.
-
-**Example:** You extracted `utils.py` and made local improvements. With `ours`, gitmux keeps the destination's version of conflicting lines—your local changes are preserved, but upstream conflict changes are lost.
-
-### `-X patience`
-
-**"Take more time to find a better diff."**
-
-The patience algorithm produces cleaner diffs when code has been moved around or refactored. It's particularly good at matching up function boundaries correctly.
-
-```bash
-./gitmux.sh -r source -t dest -X patience
-```
-
-**Example:** A file was reorganized—functions were reordered, blank lines added. The standard diff might match the wrong sections together. Patience diff is smarter about finding the "right" matches, resulting in fewer false conflicts.
-
-### `-X diff-algorithm=<algo>`
-
-**"Change how git computes the diff itself."**
-
-The diff algorithm determines how git figures out what changed between two versions. Different algorithms have different trade-offs:
-
-| Algorithm | Description | Best for |
-|-----------|-------------|----------|
-| `histogram` | gitmux default. Extends patience to support low-occurrence common elements | Code with repeated patterns or blocks |
-| `patience` | Matches unique lines first, then fills in gaps | Highly structured code |
-| `minimal` | Spends extra time to produce the smallest diff | When you need the most compact diff |
-| `myers` | Git's default. Basic greedy diff algorithm | General purpose, fast |
-
-```bash
-# gitmux uses histogram by default, but you can override:
-./gitmux.sh -r source -t dest -X diff-algorithm=myers
-./gitmux.sh -r source -t dest -X patience  # shorthand for patience algorithm
-```
-
-**When to use what** (general guidance):
-- **`histogram`** (gitmux default) — often better for code with similar or repeated structures
-- **`patience`** (shorthand `-X patience`) — good for highly structured code
-- **`minimal`** — when you want the mathematically smallest diff, regardless of speed
-- **`myers`** (Git's default) — fast and predictable; good baseline if other algorithms produce unexpected results
-
-### Custom Options with `-o`
-
-For advanced use cases, pass any valid `git rebase` options directly:
-
-```bash
-# Combine strategies
-./gitmux.sh -r source -t dest -o "--strategy-option=theirs --strategy-option=patience"
-
-# Specify diff algorithm explicitly
-./gitmux.sh -r source -t dest -o "--strategy-option=diff-algorithm=histogram"
-```
-
-### Interactive Mode with `-i`
-
-When automatic resolution isn't enough, use interactive mode to resolve conflicts manually:
-
-```bash
-./gitmux.sh -r source -t dest -i
-```
-
-gitmux will pause and provide a `cd` command to enter the workspace. Resolve conflicts, complete the rebase, then push to the `destination` remote.
-
-## Filter Backend
-
-gitmux can use either `git filter-branch` (legacy, built-in) or `git filter-repo` (modern, ~10x faster) to rewrite history. By default, gitmux auto-detects and uses filter-repo if available.
-
-| Backend | Speed | Requirements |
-|---------|-------|--------------|
-| `filter-repo` | ~10x faster | Python 3.6+, [separate install](https://github.com/newren/git-filter-repo#how-do-i-install-it) |
-| `filter-branch` | Baseline | Built into git |
-
-### Installation
-
-```bash
-# macOS
-brew install git-filter-repo
-
-# Debian/Ubuntu
-apt install git-filter-repo
-
-# pip (any platform)
-pip install git-filter-repo
-```
-
-### Override Backend
-
-```bash
-# Force filter-branch (legacy)
-./gitmux.sh -r source -t dest --filter-backend filter-branch
-
-# Require filter-repo (error if not available)
-./gitmux.sh -r source -t dest --filter-backend filter-repo
-```
-
-Or set via environment: `export GITMUX_FILTER_BACKEND=filter-repo`
+1. **Clone** source to temp workspace
+2. **Filter** to extract selected content (preserves history)
+3. **Rebase** onto destination branch
+4. **Push** to feature branch
+5. **PR** via GitHub CLI (optional)
 
 ## FAQ
 
-**Q: Why doesn't gitmux push directly to my destination branch?**
+<details>
+<summary><strong>Why pull requests instead of direct push?</strong></summary>
 
-A: That's dangerous. Pull requests provide an audit trail and allow review before merging. gitmux creates a unique feature branch for each sync.
+Direct pushes are dangerous. PRs provide an audit trail and allow review before merging.
+</details>
 
-**Q: Can I use a local directory as the source?**
+<details>
+<summary><strong>Can I run gitmux multiple times?</strong></summary>
 
-A: Yes. Local paths are faster but using URLs ensures you don't miss upstream updates.
+Yes. Each run creates a new PR with the latest changes from source.
+</details>
 
-**Q: Can I manage the rebase manually?**
+<details>
+<summary><strong>What if there are merge conflicts?</strong></summary>
 
-A: Yes! Use `-i` for interactive rebase. gitmux will give you a `cd` command to enter the workspace. Complete the rebase and push to the remote named `destination`.
+gitmux uses `-X theirs` by default (keep source changes). For complex conflicts, use `-i` for interactive mode.
+</details>
 
-**Q: What if there are merge conflicts?**
+<details>
+<summary><strong>How do I remove AI attribution from commits?</strong></summary>
 
-A: gitmux uses the rebase strategy specified by `-X` (default: `theirs`). For complex conflicts, use `-i` for manual resolution.
+Use `--coauthor-action claude` to remove Claude/Anthropic co-author trailers while preserving human contributors. Use `--coauthor-action all` to remove all co-author lines.
+</details>
 
-**Q: Can I run gitmux multiple times?**
+<details>
+<summary><strong>What's the difference between author and committer?</strong></summary>
 
-A: Yes. gitmux is designed for repeated runs. Each run creates a new PR with the latest changes from the source.
+**Author** = who wrote the code. **Committer** = who applied the commit. Usually the same, but differ during cherry-picks or rebases.
+</details>
 
-**Q: Can I migrate multiple directories at once?**
+## Advanced Topics
 
-A: Yes. Use the `-m` flag multiple times to specify source:destination mappings. For example: `-m 'src:pkg/src' -m 'tests:pkg/tests'`. All paths are processed in a single operation, creating one branch and one PR. Use `\:` to escape literal colons in paths.
+### Rebase Strategies
 
-**Q: How do I remove AI-generated attribution from commits?**
+| Strategy | Behavior | Use Case |
+|----------|----------|----------|
+| `theirs` (default) | Keep source version on conflict | Most syncs |
+| `ours` | Keep destination version | Protect local changes |
+| `patience` | Smarter diff algorithm | Moved/refactored code |
 
-A: Use `--coauthor-action claude` to remove Claude/Anthropic attribution while preserving human co-authors. Use `--coauthor-action all` to remove all co-author trailers. Combine with `--author-name` and `--author-email` to also rewrite commit authorship.
+**Why `theirs` is default:** When you run gitmux, you want source content. With `theirs`, any overwritten destination content appears in the PR diff — you'll see it. With `ours`, dropped source changes are invisible.
 
-**Q: Can I set author/committer options via environment variables?**
+### Filter Backend
 
-A: Yes. All author/committer options have corresponding environment variables: `GITMUX_AUTHOR_NAME`, `GITMUX_AUTHOR_EMAIL`, `GITMUX_COMMITTER_NAME`, `GITMUX_COMMITTER_EMAIL`, and `GITMUX_COAUTHOR_ACTION`.
+| Backend | Speed | Requirement |
+|---------|-------|-------------|
+| `filter-repo` | ~10x faster | Python 3.6+ |
+| `filter-branch` | Baseline | Built into git |
 
-**Q: How can I preview what gitmux will do before running it?**
+gitmux auto-detects and uses filter-repo if available. Override with `--filter-backend`.
 
-A: Use `--dry-run` (or `-D`). This shows you the source/destination, which commits would be affected, what author/committer changes would be made, and which co-author trailers would be removed—all without modifying anything.
+```bash
+# Install filter-repo
+brew install git-filter-repo      # macOS
+apt install git-filter-repo       # Debian/Ubuntu
+pip install git-filter-repo       # Any platform
+```
 
-**Q: What's the difference between author and committer?**
+### Pre-flight Checks
 
-A: In git, the **author** is who wrote the code, and the **committer** is who applied the commit. They're often the same person, but differ in scenarios like cherry-picking or rebasing. Use `--author-*` to change who wrote the code; use `--committer-*` to change who committed it.
+gitmux validates permissions before long-running operations:
 
-**Q: How do I see more detailed output?**
+```
+[INFO] 🔍 Running pre-flight checks...
+  ✅ git installed
+  ✅ source repo accessible
+  ✅ destination repo accessible with push access
+[INFO] ✅ All pre-flight checks passed!
+```
 
-A: Use `-v` for verbose output (debug level), or set `--log-level debug` for maximum detail. Log levels from most to least verbose: `debug`, `info` (default), `warning`, `error`. You can also set `GITMUX_LOG_LEVEL=debug` in your environment.
-
-**Q: Why did gitmux fail before doing any work?**
-
-A: gitmux runs pre-flight checks to validate permissions and access before starting long-running operations. This prevents wasted time from failures late in the process. Check the error message for what's missing (e.g., repository access, branch existence). Use `--skip-preflight` to bypass these checks if you know what you're doing.
-
-**Q: How do I get faster performance?**
-
-A: Install git-filter-repo for ~10x speedup: `brew install git-filter-repo` (macOS) or `apt install git-filter-repo` (Debian/Ubuntu). gitmux auto-detects and uses it when available. See the [Filter Backend](#filter-backend) section for details.
+Skip with `--skip-preflight` if needed.
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, testing, and PR guidelines.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
 
 ## License
 
-[Unlicense](LICENSE) - Public domain. Do whatever you want with this.
+[Unlicense](LICENSE) — Public domain. Do whatever you want.
 
-## Contact
+---
 
-- **Issues**: [GitHub Issues](https://github.com/stavxyz/gitmux/issues)
-- **Email**: hi@stav.xyz
+**[Issues](https://github.com/stavxyz/gitmux/issues)** · **[Email](mailto:hi@stav.xyz)**
