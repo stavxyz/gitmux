@@ -1,0 +1,38 @@
+title: gitmux
+description: Extract files from one repo to another while preserving full git history.
+url: https://gitmux.com
+baseurl: ""
+
+remote_theme: just-the-docs/just-the-docs
+
+# Enable search
+search_enabled: true
+search:
+  heading_level: 2
+  previews: 3
+
+# Aux links in header
+aux_links:
+  "GitHub":
+    - "https://github.com/stavxyz/gitmux"
+
+# Footer
+footer_content: "gitmux is <a href=\"/LICENSE\">Unlicense</a> — public domain."
+
+# Color scheme
+color_scheme: light
+
+# Navigation
+nav_sort: case_insensitive
+
+# Back to top link
+back_to_top: true
+back_to_top_text: "Back to top"
+
+# Exclude from processing
+exclude:
+  - plans/
+  - "*.sh"
+  - Dockerfile
+  - justfile
+  - lefthook.yml
