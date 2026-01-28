@@ -1,8 +1,7 @@
-<button id="theme-toggle">Light</button>
+<button class="theme-toggle-btn">Light</button>
 <script>
 (function() {
   var STORAGE_KEY = 'jtd-theme';
-  var toggle = document.getElementById('theme-toggle');
 
   function getTheme() {
     return localStorage.getItem(STORAGE_KEY) || 'dark';
@@ -21,20 +20,41 @@
         }
       }
     }
+    updateAllButtons();
   }
 
-  function updateButton() {
-    toggle.textContent = getTheme() === 'dark' ? 'Light' : 'Dark';
+  function updateAllButtons() {
+    var buttons = document.querySelectorAll('.theme-toggle-btn');
+    var label = getTheme() === 'dark' ? 'Light' : 'Dark';
+    for (var i = 0; i < buttons.length; i++) {
+      buttons[i].textContent = label;
+    }
   }
 
-  // Initialize button text
-  updateButton();
+  // Only run setup once (first script instance)
+  if (!window._themeToggleInitialized) {
+    window._themeToggleInitialized = true;
 
-  // Handle click
-  toggle.addEventListener('click', function() {
-    var newTheme = getTheme() === 'dark' ? 'light' : 'dark';
-    setTheme(newTheme);
-    updateButton();
-  });
+    // Initialize all buttons when DOM is ready
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', function() {
+        updateAllButtons();
+        attachListeners();
+      });
+    } else {
+      updateAllButtons();
+      attachListeners();
+    }
+  }
+
+  function attachListeners() {
+    var buttons = document.querySelectorAll('.theme-toggle-btn');
+    for (var i = 0; i < buttons.length; i++) {
+      buttons[i].addEventListener('click', function() {
+        var newTheme = getTheme() === 'dark' ? 'light' : 'dark';
+        setTheme(newTheme);
+      });
+    }
+  }
 })();
 </script>
