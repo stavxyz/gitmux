@@ -1,27 +1,60 @@
 <script>
-// Swap stylesheet to dark mode before page renders
+// Theme toggle - runs early to swap stylesheet before render
 (function() {
   var STORAGE_KEY = 'jtd-theme';
-  var saved = localStorage.getItem(STORAGE_KEY);
 
-  // Default to dark if no preference saved
-  if (!saved) {
-    saved = 'dark';
-    localStorage.setItem(STORAGE_KEY, saved);
+  function getTheme() {
+    return localStorage.getItem(STORAGE_KEY) || 'dark';
   }
 
-  // Find and swap the stylesheet immediately
+  function setTheme(theme) {
+    localStorage.setItem(STORAGE_KEY, theme);
+    var links = document.getElementsByTagName('link');
+    for (var i = 0; i < links.length; i++) {
+      var href = links[i].href;
+      if (href && href.indexOf('just-the-docs-') !== -1 && href.indexOf('.css') !== -1) {
+        if (theme === 'dark') {
+          links[i].href = href.replace('just-the-docs-default', 'just-the-docs-dark');
+        } else {
+          links[i].href = href.replace('just-the-docs-dark', 'just-the-docs-default');
+        }
+      }
+    }
+  }
+
+  // Swap stylesheet immediately
+  var saved = getTheme();
+  if (!localStorage.getItem(STORAGE_KEY)) {
+    localStorage.setItem(STORAGE_KEY, 'dark');
+  }
   var links = document.getElementsByTagName('link');
   for (var i = 0; i < links.length; i++) {
     var href = links[i].href;
     if (href && href.indexOf('just-the-docs-') !== -1 && href.indexOf('.css') !== -1) {
       if (saved === 'dark') {
         links[i].href = href.replace('just-the-docs-default', 'just-the-docs-dark');
-      } else {
-        links[i].href = href.replace('just-the-docs-dark', 'just-the-docs-default');
       }
     }
   }
+
+  // Add toggle button to header after DOM loads
+  document.addEventListener('DOMContentLoaded', function() {
+    var auxNav = document.querySelector('.aux-nav-list');
+    if (auxNav) {
+      var li = document.createElement('li');
+      li.className = 'aux-nav-list-item';
+      var btn = document.createElement('button');
+      btn.className = 'site-button theme-toggle-btn';
+      btn.textContent = getTheme() === 'dark' ? 'Light' : 'Dark';
+      btn.addEventListener('click', function() {
+        var newTheme = getTheme() === 'dark' ? 'light' : 'dark';
+        setTheme(newTheme);
+        btn.textContent = newTheme === 'dark' ? 'Light' : 'Dark';
+      });
+      li.appendChild(btn);
+      auxNav.appendChild(li);
+    }
+  });
 })();
 </script>
 <style>
@@ -29,9 +62,8 @@
   cursor: pointer;
   background: none;
   border: 1px solid var(--link-color);
-  border-radius: 4px;
-  padding: 4px 8px;
-  font-size: 12px;
+  padding: 4px 12px;
+  font-size: 14px;
   color: var(--link-color);
 }
 .theme-toggle-btn:hover {
