@@ -1,5 +1,5 @@
 <script>
-// Theme toggle - runs early to swap stylesheet before render
+// Theme toggle
 (function() {
   var STORAGE_KEY = 'jtd-theme';
 
@@ -22,10 +22,11 @@
     }
   }
 
-  // Swap stylesheet immediately
+  // Swap stylesheet immediately on page load
   var saved = getTheme();
   if (!localStorage.getItem(STORAGE_KEY)) {
     localStorage.setItem(STORAGE_KEY, 'dark');
+    saved = 'dark';
   }
   var links = document.getElementsByTagName('link');
   for (var i = 0; i < links.length; i++) {
@@ -37,37 +38,19 @@
     }
   }
 
-  // Add toggle button to header after DOM loads
+  // Convert "Theme" link to working toggle after DOM loads
   document.addEventListener('DOMContentLoaded', function() {
-    var auxNav = document.querySelector('.aux-nav-list');
-    if (auxNav) {
-      var li = document.createElement('li');
-      li.className = 'aux-nav-list-item';
-      var btn = document.createElement('button');
-      btn.className = 'site-button theme-toggle-btn';
-      btn.textContent = getTheme() === 'dark' ? 'Light' : 'Dark';
-      btn.addEventListener('click', function() {
+    var themeLink = document.querySelector('a[href="#theme-toggle"]');
+    if (themeLink) {
+      themeLink.textContent = getTheme() === 'dark' ? 'Light' : 'Dark';
+      themeLink.href = '#';
+      themeLink.addEventListener('click', function(e) {
+        e.preventDefault();
         var newTheme = getTheme() === 'dark' ? 'light' : 'dark';
         setTheme(newTheme);
-        btn.textContent = newTheme === 'dark' ? 'Light' : 'Dark';
+        themeLink.textContent = newTheme === 'dark' ? 'Light' : 'Dark';
       });
-      li.appendChild(btn);
-      auxNav.appendChild(li);
     }
   });
 })();
 </script>
-<style>
-.theme-toggle-btn {
-  cursor: pointer;
-  background: none;
-  border: 1px solid var(--link-color);
-  padding: 4px 12px;
-  font-size: 14px;
-  color: var(--link-color);
-}
-.theme-toggle-btn:hover {
-  background: var(--link-color);
-  color: var(--body-background-color);
-}
-</style>
