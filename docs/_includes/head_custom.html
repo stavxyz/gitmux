@@ -1,9 +1,26 @@
 <script>
-// Apply saved theme preference immediately to prevent flash
+// Swap stylesheet to dark mode before page renders
 (function() {
-  var saved = localStorage.getItem('jtd-theme');
-  if (saved === 'light') {
-    document.documentElement.classList.add('light-mode');
+  var STORAGE_KEY = 'jtd-theme';
+  var saved = localStorage.getItem(STORAGE_KEY);
+
+  // Default to dark if no preference saved
+  if (!saved) {
+    saved = 'dark';
+    localStorage.setItem(STORAGE_KEY, saved);
+  }
+
+  // Find and swap the stylesheet immediately
+  var links = document.getElementsByTagName('link');
+  for (var i = 0; i < links.length; i++) {
+    var href = links[i].href;
+    if (href && href.indexOf('just-the-docs-') !== -1 && href.indexOf('.css') !== -1) {
+      if (saved === 'dark') {
+        links[i].href = href.replace('just-the-docs-default', 'just-the-docs-dark');
+      } else {
+        links[i].href = href.replace('just-the-docs-dark', 'just-the-docs-default');
+      }
+    }
   }
 })();
 </script>
