@@ -7,6 +7,8 @@ permalink: /
 
 # gitmux
 
+[![GitHub Release](https://img.shields.io/github/v/release/stavxyz/gitmux)](https://github.com/stavxyz/gitmux/releases/latest)
+
 **Extract files from one repo to another while preserving full git history.**
 
 ```bash
