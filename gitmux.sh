@@ -64,6 +64,10 @@ set -euoE pipefail
 # Must be enabled at parse time for extglob patterns to work
 shopt -s extglob
 
+# Version - update this when releasing new versions
+# GitHub Action will auto-create a release when this changes on main
+GITMUX_VERSION="2.0.0"
+
 #
 # Logging system with configurable log levels
 #
@@ -391,6 +395,7 @@ for arg in "$@"; do
     '--log-level')       set -- "$@" '-L' ;;
     '--skip-preflight')  set -- "$@" '-S' ;;
     '--filter-backend')  set -- "$@" '-F' ;;
+    '--version')         set -- "$@" '-V' ;;
     *)                   set -- "$@" "$arg" ;;
   esac
 done
@@ -626,6 +631,7 @@ function show_help()
   _help_flag "-k" "Keep temp workspace for debugging"
   _help_flag "-v" "Verbose output (sets log level to debug)"
   _help_flag "-h" "Show this help"
+  _help_flag "-V, --version" "Show version and exit"
 
   echo
   printf '%s"The life of a repo man is always intense."%s\n' "${_HELP_DIM}" "${_HELP_RESET}"
@@ -644,7 +650,7 @@ if [[ $# -eq 0 ]]; then
   exit 0
 fi
 
-while getopts "hvr:d:g:t:p:z:b:l:o:X:m:sickDSL:N:E:n:e:C:F:" OPT; do
+while getopts "hVvr:d:g:t:p:z:b:l:o:X:m:sickDSL:N:E:n:e:C:F:" OPT; do
   case "$OPT" in
     r)  source_repository=$OPTARG
       ;;
@@ -698,6 +704,7 @@ while getopts "hvr:d:g:t:p:z:b:l:o:X:m:sickDSL:N:E:n:e:C:F:" OPT; do
     F)  GITMUX_FILTER_BACKEND=$OPTARG
       ;;
     h)  show_help && exit 0;;
+    V)  echo "gitmux ${GITMUX_VERSION}" && exit 0;;
     v)  _verbose=1
         LOG_LEVEL=debug
       ;;
