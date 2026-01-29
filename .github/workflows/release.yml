@@ -1,0 +1,91 @@
+# Automated releases when GITMUX_VERSION changes on main
+#
+# Trigger: Push to main
+# Action: If GITMUX_VERSION in gitmux.sh differs from latest git tag,
+#         create a new GitHub release with auto-generated notes.
+#
+# To release a new version:
+#   1. Update GITMUX_VERSION in gitmux.sh
+#   2. Create PR, get review, merge to main
+#   3. This workflow automatically creates the release
+
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history needed to check tags
+
+      - name: Extract version from gitmux.sh
+        id: version
+        run: |
+          # Check that gitmux.sh exists
+          if [[ ! -f gitmux.sh ]]; then
+            echo "::error::gitmux.sh not found in repository root"
+            exit 1
+          fi
+
+          # Extract GITMUX_VERSION="x.y.z" from the script
+          VERSION=$(grep '^GITMUX_VERSION=' gitmux.sh | sed 's/GITMUX_VERSION="//' | sed 's/"$//')
+
+          # Validate we got a version
+          if [[ -z "$VERSION" ]]; then
+            echo "::error::Could not extract GITMUX_VERSION from gitmux.sh"
+            echo "::error::Expected line like: GITMUX_VERSION=\"2.0.0\""
+            exit 1
+          fi
+
+          # Validate version format (basic semver check)
+          if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+'; then
+            echo "::error::Invalid version format: $VERSION (expected X.Y.Z)"
+            exit 1
+          fi
+
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Extracted version: $VERSION"
+
+      - name: Check if release already exists
+        id: check
+        run: |
+          TAG="v${{ steps.version.outputs.version }}"
+
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "Tag $TAG already exists - skipping release"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "Tag $TAG does not exist - will create release"
+          fi
+
+      - name: Create GitHub release
+        if: steps.check.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="v${{ steps.version.outputs.version }}"
+
+          echo "Creating release $TAG..."
+
+          if ! gh release create "$TAG" --title "$TAG" --generate-notes; then
+            echo "::error::Failed to create release $TAG"
+            echo "::error::Check Actions tab for details. You may need to create this release manually."
+            exit 1
+          fi
+
+          echo "Release $TAG created successfully"
+          echo "https://github.com/${{ github.repository }}/releases/tag/$TAG"
