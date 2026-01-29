@@ -5,6 +5,10 @@
 default:
     @just --list
 
+# Show current gitmux version from script
+version:
+    @grep '^GITMUX_VERSION=' gitmux.sh | cut -d'"' -f2
+
 # ============================================================================
 # Setup
 # ============================================================================
