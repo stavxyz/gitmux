@@ -1,6 +1,7 @@
 # gitmux
 
 [![CI](https://github.com/stavxyz/gitmux/actions/workflows/ci.yml/badge.svg)](https://github.com/stavxyz/gitmux/actions/workflows/ci.yml)
+[![GitHub Release](https://img.shields.io/github/v/release/stavxyz/gitmux)](https://github.com/stavxyz/gitmux/releases/latest)
 [![License: GPL v3](https://img.shields.io/badge/license-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Docs](https://img.shields.io/badge/docs-gitmux.com-blue)](https://gitmux.com)
 
