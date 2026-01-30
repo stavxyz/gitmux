@@ -1032,110 +1032,95 @@ HELPER_HEADER
 
 @test "should_log: debug message shown at debug level" {
     setup_log_helpers
-    LOG_LEVEL=debug
-    run _should_log debug
+    LOG_LEVEL=debug run _should_log debug
     [[ "$status" -eq 0 ]]
 }
 
 @test "should_log: debug message hidden at info level" {
     setup_log_helpers
-    LOG_LEVEL=info
-    run _should_log debug
+    LOG_LEVEL=info run _should_log debug
     [[ "$status" -ne 0 ]]
 }
 
 @test "should_log: info message shown at debug level" {
     setup_log_helpers
-    LOG_LEVEL=debug
-    run _should_log info
+    LOG_LEVEL=debug run _should_log info
     [[ "$status" -eq 0 ]]
 }
 
 @test "should_log: info message shown at info level" {
     setup_log_helpers
-    LOG_LEVEL=info
-    run _should_log info
+    LOG_LEVEL=info run _should_log info
     [[ "$status" -eq 0 ]]
 }
 
 @test "should_log: info message hidden at warning level" {
     setup_log_helpers
-    LOG_LEVEL=warning
-    run _should_log info
+    LOG_LEVEL=warning run _should_log info
     [[ "$status" -ne 0 ]]
 }
 
 @test "should_log: warning message shown at warning level" {
     setup_log_helpers
-    LOG_LEVEL=warning
-    run _should_log warning
+    LOG_LEVEL=warning run _should_log warning
     [[ "$status" -eq 0 ]]
 }
 
 @test "should_log: error message always shown" {
     setup_log_helpers
-    LOG_LEVEL=error
-    run _should_log error
+    LOG_LEVEL=error run _should_log error
     [[ "$status" -eq 0 ]]
 }
 
 @test "log_debug: produces output at debug level" {
     setup_log_helpers
-    LOG_LEVEL=debug
-    run log_debug "test message"
-    [[ "$output" =~ "[DEBUG]" ]]
+    LOG_LEVEL=debug run log_debug "test message"
+    [[ "$output" =~ \[DEBUG\] ]]
     [[ "$output" =~ "test message" ]]
 }
 
 @test "log_debug: suppressed at info level" {
     setup_log_helpers
-    LOG_LEVEL=info
-    run log_debug "test message"
+    LOG_LEVEL=info run log_debug "test message"
     [[ -z "$output" ]]
 }
 
 @test "log_info: produces output at info level" {
     setup_log_helpers
-    LOG_LEVEL=info
-    run log_info "test message"
-    [[ "$output" =~ "[INFO]" ]]
+    LOG_LEVEL=info run log_info "test message"
+    [[ "$output" =~ \[INFO\] ]]
     [[ "$output" =~ "test message" ]]
 }
 
 @test "log_warn: produces output at warning level" {
     setup_log_helpers
-    LOG_LEVEL=warning
-    run log_warn "test message"
-    [[ "$output" =~ "[WARN]" ]]
+    LOG_LEVEL=warning run log_warn "test message"
+    [[ "$output" =~ \[WARN\] ]]
     [[ "$output" =~ "test message" ]]
 }
 
 @test "log_error: always produces output" {
     setup_log_helpers
-    LOG_LEVEL=error
-    run log_error "test message"
-    [[ "$output" =~ "[ERROR]" ]]
+    LOG_LEVEL=error run log_error "test message"
+    [[ "$output" =~ \[ERROR\] ]]
     [[ "$output" =~ "test message" ]]
 }
 
 @test "log_info: suppressed at error level" {
     setup_log_helpers
-    LOG_LEVEL=error
-    run log_info "test message"
+    LOG_LEVEL=error run log_info "test message"
     [[ -z "$output" ]]
 }
 
 @test "log_info: suppressed at warning level" {
     setup_log_helpers
-    LOG_LEVEL=warning
-    run log_info "test message"
+    LOG_LEVEL=warning run log_info "test message"
     [[ -z "$output" ]]
 }
 
 @test "log_warn: suppressed at error level" {
     setup_log_helpers
-    LOG_LEVEL=error
-    run log_warn "test message"
+    LOG_LEVEL=error run log_warn "test message"
     [[ -z "$output" ]]
 }
 
@@ -1288,25 +1273,22 @@ HELPER_HEADER
 
 @test "log_error: produces output even at debug level" {
     setup_log_helpers
-    LOG_LEVEL=debug
-    run log_error "test message"
-    [[ "$output" =~ "[ERROR]" ]]
+    LOG_LEVEL=debug run log_error "test message"
+    [[ "$output" =~ \[ERROR\] ]]
     [[ "$output" =~ "test message" ]]
 }
 
 @test "log_error: produces output even at info level" {
     setup_log_helpers
-    LOG_LEVEL=info
-    run log_error "test message"
-    [[ "$output" =~ "[ERROR]" ]]
+    LOG_LEVEL=info run log_error "test message"
+    [[ "$output" =~ \[ERROR\] ]]
     [[ "$output" =~ "test message" ]]
 }
 
 @test "log_error: produces output even at warning level" {
     setup_log_helpers
-    LOG_LEVEL=warning
-    run log_error "test message"
-    [[ "$output" =~ "[ERROR]" ]]
+    LOG_LEVEL=warning run log_error "test message"
+    [[ "$output" =~ \[ERROR\] ]]
     [[ "$output" =~ "test message" ]]
 }
 
@@ -1330,8 +1312,8 @@ HELPER_HEADER
 @test "help: output contains Required category" {
     run bash -c "cd '$BATS_TEST_DIRNAME/..' && ./gitmux.sh -h 2>&1"
     [[ "$output" =~ "Required" ]]
-    [[ "$output" =~ "-r <url|path>" ]]
-    [[ "$output" =~ "-t <url|path>" ]]
+    [[ "$output" =~ -r\ \<url\|path\> ]]
+    [[ "$output" =~ -t\ \<url\|path\> ]]
 }
 
 @test "help: output contains Path Filtering category" {
@@ -1471,7 +1453,7 @@ EOF
 @test "help: shows --filter-backend option" {
     run "${GITMUX_SCRIPT}" -h
     [[ "$output" =~ "--filter-backend" ]]
-    [[ "$output" =~ "filter-branch|filter-repo|auto" ]]
+    [[ "$output" =~ filter-branch\|filter-repo\|auto ]]
 }
 
 @test "filter-backend: accepts auto value" {
@@ -1554,7 +1536,7 @@ EOF
 
     # Should show filter backend option in help
     [[ "$output" =~ "filter-backend" ]]
-    [[ "$output" =~ "filter-branch|filter-repo|auto" ]]
+    [[ "$output" =~ filter-branch\|filter-repo\|auto ]]
 }
 
 @test "preflight: fails when filter-repo explicitly requested but not found" {
@@ -1666,7 +1648,7 @@ Generated with [Claude Code](https://claude.ai/code)"
     # Should preserve human co-author
     [[ "$E2E_COMMIT_MSG" =~ "Co-authored-by: Human Dev" ]]
     # Should remove Claude co-authors
-    [[ ! "$E2E_COMMIT_MSG" =~ "@anthropic.com" ]]
+    [[ ! "$E2E_COMMIT_MSG" =~ @anthropic\.com ]]
     [[ ! "$E2E_COMMIT_MSG" =~ "Generated with" ]]
 
     teardown_local_repos
