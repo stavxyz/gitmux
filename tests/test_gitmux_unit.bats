@@ -1942,3 +1942,33 @@ Generated with [Some Tool](https://example.com)"
 
     teardown_local_repos
 }
+
+# =============================================================================
+# The auto-generated PR body must name the real destination branch (-b), not the
+# 'trunk' default. Regression guard for the DESTINATION_BRANCH/destination_branch
+# casing bug where the body showed 'trunk' while the PR actually targeted -b.
+# =============================================================================
+
+@test "e2e: PR body names the actual destination branch, not the default" {
+    setup_local_repos
+
+    cd "$E2E_TEST_DIR/source" || return 1
+    echo "content" > file.txt
+    git add .
+    git commit -m "work"
+    git push origin main
+
+    cd "$BATS_TEST_DIRNAME/.." || return 1
+    run bash -c "./gitmux.sh \
+        -r '$E2E_TEST_DIR/source' \
+        -t '$E2E_TEST_DIR/dest' \
+        -b main \
+        -k <<< 'y' 2>&1"
+    echo "gitmux output: $output" >&2
+    [[ ! "$output" =~ "errxit" ]]
+
+    # -b main was passed; the body must say 'main', not the 'trunk' default.
+    grep -qF "Destination branch (base): \`main\`" <<< "$output"
+
+    teardown_local_repos
+}

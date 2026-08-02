@@ -2584,7 +2584,7 @@ PR_DESCRIPTION=$(printf "%s\n" \
   "## Destination repository details" \
   "Destination URL: [\`${_canonical_destination_https_url}\`](${_canonical_destination_https_url})" \
   "PR Branch at Destination (head): \`${DESTINATION_PR_BRANCH_NAME}\`" \
-  "Destination branch (base): \`${DESTINATION_BRANCH}\`" \
+  "Destination branch (base): \`${destination_branch}\`" \
   "" \
   "------------------------------" \
 )
