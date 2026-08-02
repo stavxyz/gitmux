@@ -57,6 +57,13 @@ Use `\:` to escape literal colons in paths. Empty string or `.` means root.
 | `-o <options>` | Custom git rebase options |
 | `-i` | Interactive rebase mode |
 
+By default the rebase preserves each commit's original authorship date as its
+committer date (`--committer-date-is-author-date`), so an extracted history keeps
+its original timeline instead of collapsing to the moment gitmux ran (GitHub
+orders and groups commits by committer date). Set the
+`PRESERVE_COMMITTER_DATES=false` environment variable to use git's default
+(committer date = now).
+
 See [Rebase Strategies]({% link rebase-strategies.md %}) for detailed guidance.
 
 ## GitHub Integration
