@@ -648,6 +648,13 @@ setup_multipath_helpers() {
     cat > "${MULTIPATH_HELPER}" << 'HELPER_HEADER'
 #!/usr/bin/env bash
 errcho() { printf "%s\n" "$@" 1>&2; }
+# Stub gitmux's logging helpers so extracted functions that call them (e.g.
+# validate_no_dest_overlap's rename-lineage warning) run cleanly in isolation.
+log() { :; }
+log_info() { :; }
+log_warn() { :; }
+log_error() { :; }
+log_debug() { :; }
 HELPER_HEADER
 
     # Extract functions
@@ -1790,4 +1797,32 @@ Generated with [Some Tool](https://example.com)"
     [[ -f "lib/file.txt" ]]
 
     teardown_local_repos
+}
+
+# =============================================================================
+# Rename lineage: two mappings with DISTINCT sources but the SAME destination.
+# This is how a file's full history is reassembled when it was renamed over
+# time (e.g. old/name.py and new/name.py both -> dot.py). It must be allowed
+# (with a warning); a genuine duplicate (same source twice) must still error.
+# =============================================================================
+
+@test "validate_no_dest_overlap: allows duplicate dest from distinct sources (rename lineage)" {
+    setup_multipath_helpers
+    local us=$'\x1f'
+    run validate_no_dest_overlap "old/name.py${us}dot.py" "new/name.py${us}dot.py"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "validate_no_dest_overlap: still rejects duplicate dest from identical source" {
+    setup_multipath_helpers
+    local us=$'\x1f'
+    run validate_no_dest_overlap "same/src.py${us}dot.py" "same/src.py${us}dot.py"
+    [[ "$status" -ne 0 ]]
+}
+
+@test "validate_no_dest_overlap: rejects parent/child overlap even from distinct sources" {
+    setup_multipath_helpers
+    local us=$'\x1f'
+    run validate_no_dest_overlap "a/x${us}lib" "b/y${us}lib/utils"
+    [[ "$status" -ne 0 ]]
 }

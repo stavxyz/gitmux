@@ -517,17 +517,23 @@ function parse_path_mapping () {
 # Validate that destination paths don't overlap.
 # Two paths overlap if one is a prefix of the other.
 # Arguments:
-#   $@ - Array of destination paths to check
+#   $@ - Array of destination paths to check. Each element may optionally be
+#        a "source<US>dest" pair (US = \x1f); when two mappings share a
+#        destination but have distinct sources, that is allowed with a
+#        warning (rename lineage: temporally disjoint source paths).
 # Returns:
 #   0 if no overlaps, 1 if overlaps detected
 function validate_no_dest_overlap () {
   local -a paths=("$@")
-  local i j path1 path2
+  local i j src1 src2 path1 path2
+  local _sep=$'\x1f'
 
   for ((i = 0; i < ${#paths[@]}; i++)); do
     for ((j = i + 1; j < ${#paths[@]}; j++)); do
-      path1="${paths[i]}"
-      path2="${paths[j]}"
+      src1="${paths[i]%%"$_sep"*}"
+      path1="${paths[i]#*"$_sep"}"
+      src2="${paths[j]%%"$_sep"*}"
+      path2="${paths[j]#*"$_sep"}"
 
       # Empty paths (root) overlap with everything
       if [[ -z "$path1" ]] || [[ -z "$path2" ]]; then
@@ -539,6 +545,10 @@ function validate_no_dest_overlap () {
 
       # Check if paths are identical
       if [[ "$path1" == "$path2" ]]; then
+        if [[ "$src1" != "$src2" ]]; then
+          log_warn "Duplicate destination '$path1' from distinct sources ('$src1', '$src2') — assuming temporally disjoint paths (rename lineage)"
+          continue
+        fi
         log_error "Destination path conflict: '$path1' specified multiple times"
         return 1
       fi
@@ -767,10 +777,16 @@ if [[ ${#PATH_MAPPINGS[@]} -gt 0 ]]; then
     _parsed_dests+=("$PARSED_DEST")
   done
 
-  # Validate no destination overlaps
-  if ! validate_no_dest_overlap "${_parsed_dests[@]}"; then
+  # Validate no destination overlaps (pass source<US>dest pairs so duplicate
+  # destinations from distinct sources can be allowed as rename lineage)
+  declare -a _parsed_pairs=()
+  for ((i = 0; i < ${#_parsed_dests[@]}; i++)); do
+    _parsed_pairs+=("${_parsed_sources[i]}"$'\x1f'"${_parsed_dests[i]}")
+  done
+  if ! validate_no_dest_overlap "${_parsed_pairs[@]}"; then
     errxit "Path mapping validation failed"
   fi
+  unset _parsed_pairs
 
   log "Parsed ${#PATH_MAPPINGS[@]} path mapping(s):"
   for ((i = 0; i < ${#_parsed_sources[@]}; i++)); do
