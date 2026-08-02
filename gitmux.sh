@@ -422,6 +422,13 @@ GITMUX_FILTER_BACKEND="${GITMUX_FILTER_BACKEND:-auto}"
 # Don't default these rebase options *yet*
 MERGE_STRATEGY_OPTION_FOR_REBASE="${MERGE_STRATEGY_OPTION_FOR_REBASE:-theirs}"
 REBASE_OPTIONS="${REBASE_OPTIONS:-}"
+# When true (the default), the rebase step preserves each commit's original
+# authorship date as its committer date. Without it, `git rebase` stamps every
+# replayed commit with the current time, collapsing an extracted history into a
+# single timestamp and breaking GitHub's commit timeline (GitHub orders and
+# groups commits by committer date). Set PRESERVE_COMMITTER_DATES=false to keep
+# git's default (committer date = now).
+PRESERVE_COMMITTER_DATES="${PRESERVE_COMMITTER_DATES:-true}"
 GH_HOST="${GH_HOST:-github.com}"
 GITHUB_TEAMS=()
 PATH_MAPPINGS=()
@@ -2389,16 +2396,27 @@ fi
 
 MAX_RETRIES=50
 
+# Emit the `git rebase` flag that preserves original authorship dates as commit
+# (committer) dates, or nothing when the caller opts out via
+# PRESERVE_COMMITTER_DATES=false. Compatible with the merge/rebase backend used
+# below on modern git. See the PRESERVE_COMMITTER_DATES default above.
+function committer_date_rebase_flag () {
+  if [[ "${PRESERVE_COMMITTER_DATES:-true}" != "false" ]]; then
+    printf '%s' '--committer-date-is-author-date'
+  fi
+}
+
 # Rebase filtered content onto destination branch.
 # Handles interactive rebase, automatic conflict resolution, and retry logic.
 # Uses REBASE_OPTIONS global variable for rebase strategy.
 perform_rebase () {
  git config --worktree merge.renameLimit 999999999
  log "Rebase options --> ' ${REBASE_OPTIONS} '"
+ local _date_flag; _date_flag="$(committer_date_rebase_flag)"
  # shellcheck disable=SC2086
   if [[ $(echo " ${REBASE_OPTIONS} " | sed -E 's/.*(\ -i\ |\ --interactive\ ).*/INTERACTIVE/') == "INTERACTIVE" ]]; then
     log_info "🎛️  Interactive rebase detected."
-    if ! git rebase "${REBASE_OPTIONS}" "destination/${destination_branch}"; then
+    if ! git rebase ${_date_flag} "${REBASE_OPTIONS}" "destination/${destination_branch}"; then
       log_error "Interactive rebase failed or was aborted."
       log_info "📂 Navigate to the temp workspace to resolve manually:"
       log_info "   cd ${_WORKSPACE}"
@@ -2409,7 +2427,7 @@ perform_rebase () {
     log_info "   git push destination ${DESTINATION_PR_BRANCH_NAME}"
     log_info "📂 Navigate to the temp workspace to complete the workflow:"
     log_info "   cd ${_WORKSPACE}"
-  elif ! output="$(git rebase ${REBASE_OPTIONS} "destination/${destination_branch}" 2>&1)"; then
+  elif ! output="$(git rebase ${_date_flag} ${REBASE_OPTIONS} "destination/${destination_branch}" 2>&1)"; then
     # Handle rebase failures: check for common error patterns and attempt recovery
     if [[ "${output}" =~ "invalid upstream" ]]; then
       log_error "${output}"
