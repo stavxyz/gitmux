@@ -422,6 +422,13 @@ GITMUX_FILTER_BACKEND="${GITMUX_FILTER_BACKEND:-auto}"
 # Don't default these rebase options *yet*
 MERGE_STRATEGY_OPTION_FOR_REBASE="${MERGE_STRATEGY_OPTION_FOR_REBASE:-theirs}"
 REBASE_OPTIONS="${REBASE_OPTIONS:-}"
+# When true (the default), the rebase step preserves each commit's original
+# authorship date as its committer date. Without it, `git rebase` stamps every
+# replayed commit with the current time, collapsing an extracted history into a
+# single timestamp and breaking GitHub's commit timeline (GitHub orders and
+# groups commits by committer date). Set PRESERVE_COMMITTER_DATES=false to keep
+# git's default (committer date = now).
+PRESERVE_COMMITTER_DATES="${PRESERVE_COMMITTER_DATES:-true}"
 GH_HOST="${GH_HOST:-github.com}"
 GITHUB_TEAMS=()
 PATH_MAPPINGS=()
@@ -517,17 +524,23 @@ function parse_path_mapping () {
 # Validate that destination paths don't overlap.
 # Two paths overlap if one is a prefix of the other.
 # Arguments:
-#   $@ - Array of destination paths to check
+#   $@ - Array of destination paths to check. Each element may optionally be
+#        a "source<US>dest" pair (US = \x1f); when two mappings share a
+#        destination but have distinct sources, that is allowed with a
+#        warning (rename lineage: temporally disjoint source paths).
 # Returns:
 #   0 if no overlaps, 1 if overlaps detected
 function validate_no_dest_overlap () {
   local -a paths=("$@")
-  local i j path1 path2
+  local i j src1 src2 path1 path2
+  local _sep=$'\x1f'
 
   for ((i = 0; i < ${#paths[@]}; i++)); do
     for ((j = i + 1; j < ${#paths[@]}; j++)); do
-      path1="${paths[i]}"
-      path2="${paths[j]}"
+      src1="${paths[i]%%"$_sep"*}"
+      path1="${paths[i]#*"$_sep"}"
+      src2="${paths[j]%%"$_sep"*}"
+      path2="${paths[j]#*"$_sep"}"
 
       # Empty paths (root) overlap with everything
       if [[ -z "$path1" ]] || [[ -z "$path2" ]]; then
@@ -539,6 +552,10 @@ function validate_no_dest_overlap () {
 
       # Check if paths are identical
       if [[ "$path1" == "$path2" ]]; then
+        if [[ "$src1" != "$src2" ]]; then
+          log_warn "Duplicate destination '$path1' from distinct sources ('$src1', '$src2') — assuming temporally disjoint paths (rename lineage)"
+          continue
+        fi
         log_error "Destination path conflict: '$path1' specified multiple times"
         return 1
       fi
@@ -767,10 +784,16 @@ if [[ ${#PATH_MAPPINGS[@]} -gt 0 ]]; then
     _parsed_dests+=("$PARSED_DEST")
   done
 
-  # Validate no destination overlaps
-  if ! validate_no_dest_overlap "${_parsed_dests[@]}"; then
+  # Validate no destination overlaps (pass source<US>dest pairs so duplicate
+  # destinations from distinct sources can be allowed as rename lineage)
+  declare -a _parsed_pairs=()
+  for ((i = 0; i < ${#_parsed_dests[@]}; i++)); do
+    _parsed_pairs+=("${_parsed_sources[i]}"$'\x1f'"${_parsed_dests[i]}")
+  done
+  if ! validate_no_dest_overlap "${_parsed_pairs[@]}"; then
     errxit "Path mapping validation failed"
   fi
+  unset _parsed_pairs
 
   log "Parsed ${#PATH_MAPPINGS[@]} path mapping(s):"
   for ((i = 0; i < ${#_parsed_sources[@]}; i++)); do
@@ -2373,16 +2396,27 @@ fi
 
 MAX_RETRIES=50
 
+# Emit the `git rebase` flag that preserves original authorship dates as commit
+# (committer) dates, or nothing when the caller opts out via
+# PRESERVE_COMMITTER_DATES=false. Compatible with the merge/rebase backend used
+# below on modern git. See the PRESERVE_COMMITTER_DATES default above.
+function committer_date_rebase_flag () {
+  if [[ "${PRESERVE_COMMITTER_DATES:-true}" != "false" ]]; then
+    printf '%s' '--committer-date-is-author-date'
+  fi
+}
+
 # Rebase filtered content onto destination branch.
 # Handles interactive rebase, automatic conflict resolution, and retry logic.
 # Uses REBASE_OPTIONS global variable for rebase strategy.
 perform_rebase () {
  git config --worktree merge.renameLimit 999999999
  log "Rebase options --> ' ${REBASE_OPTIONS} '"
+ local _date_flag; _date_flag="$(committer_date_rebase_flag)"
  # shellcheck disable=SC2086
   if [[ $(echo " ${REBASE_OPTIONS} " | sed -E 's/.*(\ -i\ |\ --interactive\ ).*/INTERACTIVE/') == "INTERACTIVE" ]]; then
     log_info "🎛️  Interactive rebase detected."
-    if ! git rebase "${REBASE_OPTIONS}" "destination/${destination_branch}"; then
+    if ! git rebase ${_date_flag} "${REBASE_OPTIONS}" "destination/${destination_branch}"; then
       log_error "Interactive rebase failed or was aborted."
       log_info "📂 Navigate to the temp workspace to resolve manually:"
       log_info "   cd ${_WORKSPACE}"
@@ -2393,7 +2427,7 @@ perform_rebase () {
     log_info "   git push destination ${DESTINATION_PR_BRANCH_NAME}"
     log_info "📂 Navigate to the temp workspace to complete the workflow:"
     log_info "   cd ${_WORKSPACE}"
-  elif ! output="$(git rebase ${REBASE_OPTIONS} "destination/${destination_branch}" 2>&1)"; then
+  elif ! output="$(git rebase ${_date_flag} ${REBASE_OPTIONS} "destination/${destination_branch}" 2>&1)"; then
     # Handle rebase failures: check for common error patterns and attempt recovery
     if [[ "${output}" =~ "invalid upstream" ]]; then
       log_error "${output}"
@@ -2550,7 +2584,7 @@ PR_DESCRIPTION=$(printf "%s\n" \
   "## Destination repository details" \
   "Destination URL: [\`${_canonical_destination_https_url}\`](${_canonical_destination_https_url})" \
   "PR Branch at Destination (head): \`${DESTINATION_PR_BRANCH_NAME}\`" \
-  "Destination branch (base): \`${DESTINATION_BRANCH}\`" \
+  "Destination branch (base): \`${destination_branch}\`" \
   "" \
   "------------------------------" \
 )

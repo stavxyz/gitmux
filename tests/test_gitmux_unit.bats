@@ -648,6 +648,13 @@ setup_multipath_helpers() {
     cat > "${MULTIPATH_HELPER}" << 'HELPER_HEADER'
 #!/usr/bin/env bash
 errcho() { printf "%s\n" "$@" 1>&2; }
+# Stub gitmux's logging helpers so extracted functions that call them (e.g.
+# validate_no_dest_overlap's rename-lineage warning) run cleanly in isolation.
+log() { :; }
+log_info() { :; }
+log_warn() { :; }
+log_error() { :; }
+log_debug() { :; }
 HELPER_HEADER
 
     # Extract functions
@@ -656,6 +663,7 @@ HELPER_HEADER
         sed -n '/^function normalize_path () {/,/^}/p' "${GITMUX_SCRIPT}"
         sed -n '/^function parse_path_mapping () {/,/^}/p' "${GITMUX_SCRIPT}"
         sed -n '/^function validate_no_dest_overlap () {/,/^}/p' "${GITMUX_SCRIPT}"
+        sed -n '/^function committer_date_rebase_flag () {/,/^}/p' "${GITMUX_SCRIPT}"
     } >> "${MULTIPATH_HELPER}"
 
     source "${MULTIPATH_HELPER}"
@@ -1788,6 +1796,179 @@ Generated with [Some Tool](https://example.com)"
     # File should be at lib/file.txt (renamed from src/file.txt)
     # With filter-repo's --path-rename, src/ -> lib/ directly
     [[ -f "lib/file.txt" ]]
+
+    teardown_local_repos
+}
+
+# =============================================================================
+# Rename lineage: two mappings with DISTINCT sources but the SAME destination.
+# This is how a file's full history is reassembled when it was renamed over
+# time (e.g. old/name.py and new/name.py both -> dot.py). It must be allowed
+# (with a warning); a genuine duplicate (same source twice) must still error.
+# =============================================================================
+
+@test "validate_no_dest_overlap: allows duplicate dest from distinct sources (rename lineage)" {
+    setup_multipath_helpers
+    local us=$'\x1f'
+    run validate_no_dest_overlap "old/name.py${us}dot.py" "new/name.py${us}dot.py"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "validate_no_dest_overlap: still rejects duplicate dest from identical source" {
+    setup_multipath_helpers
+    local us=$'\x1f'
+    run validate_no_dest_overlap "same/src.py${us}dot.py" "same/src.py${us}dot.py"
+    [[ "$status" -ne 0 ]]
+}
+
+@test "validate_no_dest_overlap: rejects parent/child overlap even from distinct sources" {
+    setup_multipath_helpers
+    local us=$'\x1f'
+    run validate_no_dest_overlap "a/x${us}lib" "b/y${us}lib/utils"
+    [[ "$status" -ne 0 ]]
+}
+
+# =============================================================================
+# Committer-date preservation flag. Default-on so an extracted history keeps its
+# original timeline; opt out with PRESERVE_COMMITTER_DATES=false.
+# =============================================================================
+
+@test "committer_date_rebase_flag: enabled by default (unset)" {
+    setup_multipath_helpers
+    local out
+    out="$(unset PRESERVE_COMMITTER_DATES; committer_date_rebase_flag)"
+    [[ "$out" == "--committer-date-is-author-date" ]]
+}
+
+@test "committer_date_rebase_flag: enabled when explicitly true" {
+    setup_multipath_helpers
+    local out
+    out="$(PRESERVE_COMMITTER_DATES=true committer_date_rebase_flag)"
+    [[ "$out" == "--committer-date-is-author-date" ]]
+}
+
+@test "committer_date_rebase_flag: emits nothing when opted out" {
+    setup_multipath_helpers
+    local out
+    out="$(PRESERVE_COMMITTER_DATES=false committer_date_rebase_flag)"
+    [[ -z "$out" ]]
+}
+
+# =============================================================================
+# End-to-end: the rebase onto the destination must preserve each commit's
+# original date rather than stamping it with 'now'. Paired opt-in/opt-out runs
+# isolate the flag as the cause (guards against a false pass).
+# =============================================================================
+
+@test "e2e: rebase preserves original commit date by default" {
+    setup_local_repos
+
+    # Source commit with an OLD author date but a recent committer date. Without
+    # --committer-date-is-author-date the rebase would stamp the replayed commit
+    # with 'now', discarding 2019 and collapsing the timeline on GitHub.
+    cd "$E2E_TEST_DIR/source" || return 1
+    echo "content" > file.txt
+    git add .
+    GIT_AUTHOR_DATE="2019-06-15T12:00:00-05:00" \
+    GIT_COMMITTER_DATE="2026-01-02T03:04:05-05:00" \
+        git commit -m "Old authored work"
+    git push origin main
+
+    # Default run: PRESERVE_COMMITTER_DATES defaults to true.
+    cd "$BATS_TEST_DIRNAME/.." || return 1
+    run bash -c "./gitmux.sh \
+        -r '$E2E_TEST_DIR/source' \
+        -t '$E2E_TEST_DIR/dest' \
+        -b main \
+        -k <<< 'y' 2>&1"
+    echo "gitmux output: $output" >&2
+    [[ ! "$output" =~ "errxit" ]]
+
+    cd "$E2E_TEST_DIR/dest" || return 1
+    local branch_name
+    branch_name=$(git branch -a | grep "update-from-main" | head -1 | tr -d ' *')
+    [[ -n "$branch_name" ]] || { echo "No update-from-main branch found"; return 1; }
+
+    # Inspect the replayed source commit itself, not gitmux's wrapper tip: its
+    # committer date must equal its preserved 2019 author date.
+    local target ad cdate
+    target=$(git log --format="%H %s" "$branch_name" | grep "Old authored work" | head -1 | cut -d' ' -f1)
+    [[ -n "$target" ]] || { echo "Replayed commit not found"; return 1; }
+    ad=$(git log -1 --format="%aI" "$target")
+    cdate=$(git log -1 --format="%cI" "$target")
+    echo "author=$ad committer=$cdate" >&2
+    [[ "$ad" == 2019-* ]]
+    [[ "$ad" == "$cdate" ]]
+
+    teardown_local_repos
+}
+
+@test "e2e: PRESERVE_COMMITTER_DATES=false keeps git's default (committer date != author date)" {
+    setup_local_repos
+
+    cd "$E2E_TEST_DIR/source" || return 1
+    echo "content" > file.txt
+    git add .
+    GIT_AUTHOR_DATE="2019-06-15T12:00:00-05:00" \
+    GIT_COMMITTER_DATE="2026-01-02T03:04:05-05:00" \
+        git commit -m "Old authored work"
+    git push origin main
+
+    # Opt out: committer date should become the rebase time, not 2019.
+    cd "$BATS_TEST_DIRNAME/.." || return 1
+    run bash -c "PRESERVE_COMMITTER_DATES=false ./gitmux.sh \
+        -r '$E2E_TEST_DIR/source' \
+        -t '$E2E_TEST_DIR/dest' \
+        -b main \
+        -k <<< 'y' 2>&1"
+    echo "gitmux output: $output" >&2
+    [[ ! "$output" =~ "errxit" ]]
+
+    cd "$E2E_TEST_DIR/dest" || return 1
+    local branch_name
+    branch_name=$(git branch -a | grep "update-from-main" | head -1 | tr -d ' *')
+    [[ -n "$branch_name" ]] || { echo "No update-from-main branch found"; return 1; }
+
+    # Same replayed commit; with preservation disabled its committer date is the
+    # rebase time, so it differs from the 2019 author date.
+    local target ad cdate
+    target=$(git log --format="%H %s" "$branch_name" | grep "Old authored work" | head -1 | cut -d' ' -f1)
+    [[ -n "$target" ]] || { echo "Replayed commit not found"; return 1; }
+    ad=$(git log -1 --format="%aI" "$target")
+    cdate=$(git log -1 --format="%cI" "$target")
+    echo "author=$ad committer=$cdate" >&2
+    [[ "$ad" == 2019-* ]]
+    [[ "$cdate" != 2019-* ]]
+
+    teardown_local_repos
+}
+
+# =============================================================================
+# The auto-generated PR body must name the real destination branch (-b), not the
+# 'trunk' default. Regression guard for the DESTINATION_BRANCH/destination_branch
+# casing bug where the body showed 'trunk' while the PR actually targeted -b.
+# =============================================================================
+
+@test "e2e: PR body names the actual destination branch, not the default" {
+    setup_local_repos
+
+    cd "$E2E_TEST_DIR/source" || return 1
+    echo "content" > file.txt
+    git add .
+    git commit -m "work"
+    git push origin main
+
+    cd "$BATS_TEST_DIRNAME/.." || return 1
+    run bash -c "./gitmux.sh \
+        -r '$E2E_TEST_DIR/source' \
+        -t '$E2E_TEST_DIR/dest' \
+        -b main \
+        -k <<< 'y' 2>&1"
+    echo "gitmux output: $output" >&2
+    [[ ! "$output" =~ "errxit" ]]
+
+    # -b main was passed; the body must say 'main', not the 'trunk' default.
+    grep -qF "Destination branch (base): \`main\`" <<< "$output"
 
     teardown_local_repos
 }
