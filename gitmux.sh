@@ -251,6 +251,28 @@ _cmd_exists () {
   fi
 }
 
+# Retry a command up to <max> times with a fixed <delay> (seconds) between
+# attempts, returning 0 as soon as it succeeds and non-zero if every attempt
+# fails. Used to tolerate a freshly created repository briefly 404ing for the
+# credential that created it: fine-grained PATs grant per-repo access
+# asynchronously, so a brand-new repo may not be reachable for a few seconds.
+# Usage: _retry <max-attempts> <delay-seconds> <command> [args...]
+_retry () {
+  local _max="$1" _delay="$2"
+  shift 2
+  local _attempt
+  for ((_attempt = 1; _attempt <= _max; _attempt++)); do
+    if "$@"; then
+      return 0
+    fi
+    if ((_attempt < _max)); then
+      log_warn "Command failed (attempt ${_attempt}/${_max}): $*; retrying in ${_delay}s..."
+      sleep "${_delay}"
+    fi
+  done
+  return 1
+}
+
 # Check if git-filter-repo is available.
 # Returns:
 #   0 if git-filter-repo is in PATH and executable
@@ -409,7 +431,7 @@ SUBDIRECTORY_FILTER="${SUBDIRECTORY_FILTER:-}"
 SOURCE_GIT_REF="${SOURCE_GIT_REF:-}"
 DESTINATION_PATH="${DESTINATION_PATH:-}"
 DESTINATION_REPOSITORY="${DESTINATION_REPOSITORY:-}"
-DESTINATION_BRANCH="${DESTINATION_BRANCH:-trunk}"
+DESTINATION_BRANCH="${DESTINATION_BRANCH:-main}"
 SUBMIT_PR="${SUBMIT_PR:-false}"
 REV_LIST_FILES="${REV_LIST_FILES:-}"
 INTERACTIVE_REBASE="${INTERACTIVE_REBASE:-false}"
@@ -615,7 +637,7 @@ function show_help()
   _help_flag "-l <rev-list>" "Extract specific files (git rev-list format)"
 
   _help_header "Destination"
-  _help_flag "-b <branch>" "Target branch in destination (default: trunk)"
+  _help_flag "-b <branch>" "Target branch in destination (default: main)"
   _help_flag "-c" "Create destination repo if missing (requires gh)"
 
   _help_header "Rebase"
@@ -1374,7 +1396,7 @@ _WORKSPACE=$(pwd)
 
 # The following is unnecessary when doing a full clone.
 # Without a full clone, this procedure just doesnt work quite right.
-#git fetch --update-shallow --shallow-since=1month --update-head-ok --progress origin trunk
+#git fetch --update-shallow --shallow-since=1month --update-head-ok --progress origin main
 
 # If a non-default ref is specified, fetch it explicitly and perform a checkout.
 if [[ -n "${source_git_ref}" ]]; then
@@ -2319,7 +2341,7 @@ if ! _repo_existence="$(git fetch destination 2>&1)"; then
       errxit "Failed to configure git authentication via gh CLI"
     fi
     git remote --verbose show
-    # Rename default branch to trunk (gitmux convention) if needed
+    # Rename the new repo's default branch to the destination branch if needed
     _current_branch=$(git branch --show-current)
     if [[ "${_current_branch}" != "${destination_branch}" ]]; then
       log "Renaming branch ${_current_branch} to ${destination_branch}"
@@ -2337,18 +2359,21 @@ if ! _repo_existence="$(git fetch destination 2>&1)"; then
     ########## </GH CREATE REPO> ################
 
     log "Attempting (again) to fetch remote 'destination' --> ${destination_repository}"
-    if ! git fetch destination; then
+    # A just-created repository can briefly 404 for the credential that created
+    # it (fine-grained PATs grant per-repo access asynchronously), so retry the
+    # first fetch instead of failing the whole run on that race.
+    if ! _retry 10 3 git fetch destination; then
       errxit "Failed to fetch from newly created destination repository"
     fi
     # Our brand new repo destination branch needs at least one commit (to be the base branch of a PR).
     # This will also help remind us where this repository came from.
     git status
-    # A local 'trunk' branch probably already exists
-    if ! git checkout -b "gitmux-dest-${destination_branch}" destination/trunk; then
+    # The destination branch now exists on the 'destination' remote
+    if ! git checkout -b "gitmux-dest-${destination_branch}" "destination/${destination_branch}"; then
       errxit "Failed to checkout destination branch from new repository"
     fi
-    if ! git pull destination trunk; then
-      errxit "Failed to pull from destination trunk"
+    if ! git pull destination "${destination_branch}"; then
+      errxit "Failed to pull '${destination_branch}' from destination"
     fi
     # Unstage everything (from ${DESTINATION_PR_BRANCH_NAME})
     if ! _rm_output=$(git rm -r --cached . 2>&1); then
@@ -2360,7 +2385,7 @@ if ! _repo_existence="$(git fetch destination 2>&1)"; then
     if ! git commit --message 'Hello: this repository was created by gitmux.' --allow-empty; then
       log_warn "Failed to create initial commit - continuing anyway"
     fi
-    if ! git push destination "gitmux-dest-${destination_branch}:trunk"; then
+    if ! git push destination "gitmux-dest-${destination_branch}:${destination_branch}"; then
       errxit "Failed to push initial commit to destination repository"
     fi
     # Now go back to the build branch.

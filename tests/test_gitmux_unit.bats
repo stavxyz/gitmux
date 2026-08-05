@@ -655,6 +655,8 @@ log_info() { :; }
 log_warn() { :; }
 log_error() { :; }
 log_debug() { :; }
+# Stub sleep so _retry's inter-attempt delay doesn't slow the tests down.
+sleep() { :; }
 HELPER_HEADER
 
     # Extract functions
@@ -664,6 +666,7 @@ HELPER_HEADER
         sed -n '/^function parse_path_mapping () {/,/^}/p' "${GITMUX_SCRIPT}"
         sed -n '/^function validate_no_dest_overlap () {/,/^}/p' "${GITMUX_SCRIPT}"
         sed -n '/^function committer_date_rebase_flag () {/,/^}/p' "${GITMUX_SCRIPT}"
+        sed -n '/^_retry () {/,/^}/p' "${GITMUX_SCRIPT}"
     } >> "${MULTIPATH_HELPER}"
 
     source "${MULTIPATH_HELPER}"
@@ -1945,12 +1948,21 @@ Generated with [Some Tool](https://example.com)"
 
 # =============================================================================
 # The auto-generated PR body must name the real destination branch (-b), not the
-# 'trunk' default. Regression guard for the DESTINATION_BRANCH/destination_branch
-# casing bug where the body showed 'trunk' while the PR actually targeted -b.
+# frozen DESTINATION_BRANCH default. Regression guard for the
+# DESTINATION_BRANCH/destination_branch casing bug where the body echoed the
+# uppercase default while the PR actually targeted -b. Targets a NON-default
+# branch (the default is 'main') so the -b value and the default differ and the
+# guard actually bites.
 # =============================================================================
 
 @test "e2e: PR body names the actual destination branch, not the default" {
     setup_local_repos
+
+    # Give the destination a branch other than the 'main' default, and target it.
+    cd "$E2E_TEST_DIR/dest" || return 1
+    git checkout -q -b release
+    git push -q origin release
+    git checkout -q main
 
     cd "$E2E_TEST_DIR/source" || return 1
     echo "content" > file.txt
@@ -1962,13 +1974,44 @@ Generated with [Some Tool](https://example.com)"
     run bash -c "./gitmux.sh \
         -r '$E2E_TEST_DIR/source' \
         -t '$E2E_TEST_DIR/dest' \
-        -b main \
+        -b release \
         -k <<< 'y' 2>&1"
     echo "gitmux output: $output" >&2
     [[ ! "$output" =~ "errxit" ]]
 
-    # -b main was passed; the body must say 'main', not the 'trunk' default.
-    grep -qF "Destination branch (base): \`main\`" <<< "$output"
+    # -b release differs from the 'main' default; the body must reflect -b.
+    grep -qF "Destination branch (base): \`release\`" <<< "$output"
 
     teardown_local_repos
+}
+
+# =============================================================================
+# _retry: run a command until it succeeds, up to <max> attempts. Guards the
+# post-create fetch against a freshly created repo briefly 404ing for the
+# credential that made it.
+# =============================================================================
+
+@test "_retry: succeeds immediately when the command passes on the first try" {
+    setup_multipath_helpers
+    run _retry 3 0 true
+    [[ "$status" -eq 0 ]]
+}
+
+@test "_retry: keeps trying and succeeds once the command starts passing" {
+    setup_multipath_helpers
+    local counter="${BATS_TEST_TMPDIR}/retry_count"
+    printf '0' > "$counter"
+    # Fails on attempts 1 and 2, then succeeds on attempt 3.
+    _flaky() {
+        local n; n=$(< "$counter"); n=$((n + 1)); printf '%s' "$n" > "$counter"
+        [ "$n" -ge 3 ]
+    }
+    _retry 5 0 _flaky
+    [[ "$(< "$counter")" -eq 3 ]]
+}
+
+@test "_retry: returns non-zero after exhausting all attempts" {
+    setup_multipath_helpers
+    run _retry 3 0 false
+    [[ "$status" -ne 0 ]]
 }
