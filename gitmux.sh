@@ -409,7 +409,7 @@ SUBDIRECTORY_FILTER="${SUBDIRECTORY_FILTER:-}"
 SOURCE_GIT_REF="${SOURCE_GIT_REF:-}"
 DESTINATION_PATH="${DESTINATION_PATH:-}"
 DESTINATION_REPOSITORY="${DESTINATION_REPOSITORY:-}"
-DESTINATION_BRANCH="${DESTINATION_BRANCH:-trunk}"
+DESTINATION_BRANCH="${DESTINATION_BRANCH:-main}"
 SUBMIT_PR="${SUBMIT_PR:-false}"
 REV_LIST_FILES="${REV_LIST_FILES:-}"
 INTERACTIVE_REBASE="${INTERACTIVE_REBASE:-false}"
@@ -615,7 +615,7 @@ function show_help()
   _help_flag "-l <rev-list>" "Extract specific files (git rev-list format)"
 
   _help_header "Destination"
-  _help_flag "-b <branch>" "Target branch in destination (default: trunk)"
+  _help_flag "-b <branch>" "Target branch in destination (default: main)"
   _help_flag "-c" "Create destination repo if missing (requires gh)"
 
   _help_header "Rebase"

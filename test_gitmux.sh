@@ -121,12 +121,12 @@ createRepository() {
   git commit --message 'Hello: this repository was created by gitmux.' --allow-empty
   # Mask token in verbose output
   git remote --verbose show | sed "s/${GH_TOKEN}/[REDACTED]/g"
-  # Rename branch to trunk (gitmux convention) and push
-  git branch -m trunk
+  # Rename branch to main (gitmux convention) and push
+  git branch -m main
   log "pushing change to hello"
-  git push hello "trunk:trunk"
-  # Set trunk as default branch on GitHub
-  gh repo edit "${_owner}/${_project}" --default-branch trunk
+  git push hello "main:main"
+  # Set main as default branch on GitHub
+  gh repo edit "${_owner}/${_project}" --default-branch main
   pwd
   _popd && _popd
   pwd
@@ -142,13 +142,13 @@ createRepository() {
 SOURCE_REPOSITORY_NAME="gitmux_test_source_$(rands)"
 mkdir -p "${SOURCE_REPOSITORY_NAME}"
 _pushd "${SOURCE_REPOSITORY_NAME}" && SOURCE_REPOSITORY_PATH="$(pwd)"
-git init --initial-branch=trunk
+git init --initial-branch=main
 createRepository "${GITHUB_OWNER}" "${SOURCE_REPOSITORY_NAME}"
 repositoriesToDelete+=("${GITHUB_OWNER}/${SOURCE_REPOSITORY_NAME}")
 git remote add source_remote_name "https://${GITHUB_OWNER}:${GH_TOKEN}@${GH_HOST}/${GITHUB_OWNER}/${SOURCE_REPOSITORY_NAME}.git"
 log "Fetching in $(pwd)"
 git fetch source_remote_name
-git checkout -b something-new --track source_remote_name/trunk
+git checkout -b something-new --track source_remote_name/main
 echo "Hello World" > "hello.txt"
 echo "## wat" > 'wat.md'
 mkdir -p toto
@@ -170,15 +170,15 @@ DESTINATION_REPOSITORY_NAME="gitmux_test_destination_$(rands)"
 mkdir -p "${DESTINATION_REPOSITORY_NAME}"
 _pushd "${DESTINATION_REPOSITORY_NAME}"
 DESTINATION_REPOSITORY_PATH="$(pwd)"
-git init --initial-branch=trunk
+git init --initial-branch=main
 createRepository "${GITHUB_OWNER}" "${DESTINATION_REPOSITORY_NAME}"
 repositoriesToDelete+=("${GITHUB_OWNER}/${DESTINATION_REPOSITORY_NAME}")
 git remote add destination_remote_name "https://${GITHUB_OWNER}:${GH_TOKEN}@${GH_HOST}/${GITHUB_OWNER}/${DESTINATION_REPOSITORY_NAME}.git"
 git fetch --update-head-ok destination_remote_name
-# This actually creates a local 'trunk' tracking branch.
-git checkout trunk
+# This actually creates a local 'main' tracking branch.
+git checkout main
 # Now back to current branch.
-git checkout -b destination_current_branch --track destination_remote_name/trunk
+git checkout -b destination_current_branch --track destination_remote_name/main
 git commit --allow-empty -m 'initial destination repo commit: gitmux test'
 _popd && _popd
 
@@ -221,7 +221,7 @@ echo
 ##########################################
 
 test_rebase_strategy_theirs_with_existing_upstream_destination() {
-  ./gitmux.sh -v -r "${SOURCE_REPOSITORY_PATH}" -t "${DESTINATION_REPOSITORY_PATH}" -p place_content_in_this_subdir -b trunk -X theirs
+  ./gitmux.sh -v -r "${SOURCE_REPOSITORY_PATH}" -t "${DESTINATION_REPOSITORY_PATH}" -p place_content_in_this_subdir -b main -X theirs
   _pushd "${DESTINATION_REPOSITORY_PATH}"
   git checkout "update-from-something-new-${_sha}-rebase-strategy-theirs"
   local output=''
@@ -387,12 +387,12 @@ test_multipath_migration() {
   mkdir -p "${MULTIPATH_SOURCE_NAME}"
   _pushd "${MULTIPATH_SOURCE_NAME}"
   MULTIPATH_SOURCE_PATH="$(pwd)"
-  git init --initial-branch=trunk
+  git init --initial-branch=main
   createRepository "${GITHUB_OWNER}" "${MULTIPATH_SOURCE_NAME}"
   repositoriesToDelete+=("${GITHUB_OWNER}/${MULTIPATH_SOURCE_NAME}")
   git remote add multipath_source_remote "https://${GITHUB_OWNER}:${GH_TOKEN}@${GH_HOST}/${GITHUB_OWNER}/${MULTIPATH_SOURCE_NAME}.git"
   git fetch multipath_source_remote
-  git checkout -b multipath-test --track multipath_source_remote/trunk
+  git checkout -b multipath-test --track multipath_source_remote/main
 
   # Create src/ directory with some files
   mkdir -p src
@@ -417,13 +417,13 @@ test_multipath_migration() {
   mkdir -p "${MULTIPATH_DEST_NAME}"
   _pushd "${MULTIPATH_DEST_NAME}"
   MULTIPATH_DEST_PATH="$(pwd)"
-  git init --initial-branch=trunk
+  git init --initial-branch=main
   createRepository "${GITHUB_OWNER}" "${MULTIPATH_DEST_NAME}"
   repositoriesToDelete+=("${GITHUB_OWNER}/${MULTIPATH_DEST_NAME}")
   git remote add multipath_dest_remote "https://${GITHUB_OWNER}:${GH_TOKEN}@${GH_HOST}/${GITHUB_OWNER}/${MULTIPATH_DEST_NAME}.git"
   git fetch --update-head-ok multipath_dest_remote
-  git checkout trunk
-  git checkout -b multipath_dest_branch --track multipath_dest_remote/trunk
+  git checkout main
+  git checkout -b multipath_dest_branch --track multipath_dest_remote/main
   git commit --allow-empty -m 'initial destination repo commit: multipath test'
   _popd
 
