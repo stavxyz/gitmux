@@ -655,6 +655,8 @@ log_info() { :; }
 log_warn() { :; }
 log_error() { :; }
 log_debug() { :; }
+# Stub sleep so _retry's inter-attempt delay doesn't slow the tests down.
+sleep() { :; }
 HELPER_HEADER
 
     # Extract functions
@@ -664,6 +666,7 @@ HELPER_HEADER
         sed -n '/^function parse_path_mapping () {/,/^}/p' "${GITMUX_SCRIPT}"
         sed -n '/^function validate_no_dest_overlap () {/,/^}/p' "${GITMUX_SCRIPT}"
         sed -n '/^function committer_date_rebase_flag () {/,/^}/p' "${GITMUX_SCRIPT}"
+        sed -n '/^_retry () {/,/^}/p' "${GITMUX_SCRIPT}"
     } >> "${MULTIPATH_HELPER}"
 
     source "${MULTIPATH_HELPER}"
@@ -1980,4 +1983,35 @@ Generated with [Some Tool](https://example.com)"
     grep -qF "Destination branch (base): \`release\`" <<< "$output"
 
     teardown_local_repos
+}
+
+# =============================================================================
+# _retry: run a command until it succeeds, up to <max> attempts. Guards the
+# post-create fetch against a freshly created repo briefly 404ing for the
+# credential that made it.
+# =============================================================================
+
+@test "_retry: succeeds immediately when the command passes on the first try" {
+    setup_multipath_helpers
+    run _retry 3 0 true
+    [[ "$status" -eq 0 ]]
+}
+
+@test "_retry: keeps trying and succeeds once the command starts passing" {
+    setup_multipath_helpers
+    local counter="${BATS_TEST_TMPDIR}/retry_count"
+    printf '0' > "$counter"
+    # Fails on attempts 1 and 2, then succeeds on attempt 3.
+    _flaky() {
+        local n; n=$(< "$counter"); n=$((n + 1)); printf '%s' "$n" > "$counter"
+        [ "$n" -ge 3 ]
+    }
+    _retry 5 0 _flaky
+    [[ "$(< "$counter")" -eq 3 ]]
+}
+
+@test "_retry: returns non-zero after exhausting all attempts" {
+    setup_multipath_helpers
+    run _retry 3 0 false
+    [[ "$status" -ne 0 ]]
 }

@@ -251,6 +251,28 @@ _cmd_exists () {
   fi
 }
 
+# Retry a command up to <max> times with a fixed <delay> (seconds) between
+# attempts, returning 0 as soon as it succeeds and non-zero if every attempt
+# fails. Used to tolerate a freshly created repository briefly 404ing for the
+# credential that created it: fine-grained PATs grant per-repo access
+# asynchronously, so a brand-new repo may not be reachable for a few seconds.
+# Usage: _retry <max-attempts> <delay-seconds> <command> [args...]
+_retry () {
+  local _max="$1" _delay="$2"
+  shift 2
+  local _attempt
+  for ((_attempt = 1; _attempt <= _max; _attempt++)); do
+    if "$@"; then
+      return 0
+    fi
+    if ((_attempt < _max)); then
+      log_warn "Command failed (attempt ${_attempt}/${_max}): $*; retrying in ${_delay}s..."
+      sleep "${_delay}"
+    fi
+  done
+  return 1
+}
+
 # Check if git-filter-repo is available.
 # Returns:
 #   0 if git-filter-repo is in PATH and executable
@@ -2338,19 +2360,9 @@ if ! _repo_existence="$(git fetch destination 2>&1)"; then
 
     log "Attempting (again) to fetch remote 'destination' --> ${destination_repository}"
     # A just-created repository can briefly 404 for the credential that created
-    # it -- notably fine-grained PATs, whose per-repo access propagates
-    # asynchronously -- so retry the first fetch with backoff instead of failing
-    # the whole run on that race.
-    _fetch_ok=false
-    for ((_fa = 1; _fa <= 10; _fa++)); do
-      if git fetch destination; then
-        _fetch_ok=true
-        break
-      fi
-      log_warn "Destination not reachable yet (attempt ${_fa}/10); waiting for GitHub to propagate the new repository..."
-      sleep 3
-    done
-    if [ "${_fetch_ok}" != true ]; then
+    # it (fine-grained PATs grant per-repo access asynchronously), so retry the
+    # first fetch instead of failing the whole run on that race.
+    if ! _retry 10 3 git fetch destination; then
       errxit "Failed to fetch from newly created destination repository"
     fi
     # Our brand new repo destination branch needs at least one commit (to be the base branch of a PR).
