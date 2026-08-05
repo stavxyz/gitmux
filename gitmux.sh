@@ -2337,7 +2337,20 @@ if ! _repo_existence="$(git fetch destination 2>&1)"; then
     ########## </GH CREATE REPO> ################
 
     log "Attempting (again) to fetch remote 'destination' --> ${destination_repository}"
-    if ! git fetch destination; then
+    # A just-created repository can briefly 404 for the credential that created
+    # it -- notably fine-grained PATs, whose per-repo access propagates
+    # asynchronously -- so retry the first fetch with backoff instead of failing
+    # the whole run on that race.
+    _fetch_ok=false
+    for ((_fa = 1; _fa <= 10; _fa++)); do
+      if git fetch destination; then
+        _fetch_ok=true
+        break
+      fi
+      log_warn "Destination not reachable yet (attempt ${_fa}/10); waiting for GitHub to propagate the new repository..."
+      sleep 3
+    done
+    if [ "${_fetch_ok}" != true ]; then
       errxit "Failed to fetch from newly created destination repository"
     fi
     # Our brand new repo destination branch needs at least one commit (to be the base branch of a PR).
