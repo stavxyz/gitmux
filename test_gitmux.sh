@@ -466,6 +466,40 @@ test_multipath_migration() {
   _popd
 }
 
+##########################################
+#### Test 7:
+####    - -c (create repo) with an explicit NON-default branch (-b release)
+####    - guards that the create/bootstrap path honors -b instead of
+####      hardcoding the base branch
+##########################################
+
+test_create_destination_with_nondefault_branch() {
+  NEW_REPO_PROJECT_NAME="gitmux_test_destination_$(rands)"
+  repositoriesToDelete+=("${GITHUB_OWNER}/${NEW_REPO_PROJECT_NAME}")
+  NEW_REPO_NO_UPSTREAM_YET="https://${GITHUB_OWNER}:${GH_TOKEN}@${GH_HOST}/${GITHUB_OWNER}/${NEW_REPO_PROJECT_NAME}.git"
+  # -b names a branch other than the 'main' default; the create/bootstrap path
+  # must target it (it previously hardcoded the base branch).
+  ./gitmux.sh -v -c -r "${SOURCE_REPOSITORY_PATH}" -t "${NEW_REPO_NO_UPSTREAM_YET}" -b release
+  log "Cloning the created repo; its default branch should be the -b value 'release'."
+  git clone "${NEW_REPO_NO_UPSTREAM_YET}"
+  _pushd "${NEW_REPO_PROJECT_NAME}"
+  local _default_branch=''
+  _default_branch=$(git branch --show-current)
+  if [ "${_default_branch}" != "release" ]; then
+    errcho "Expected created repo default branch 'release', got '${_default_branch}'"
+    errcleanup
+  fi
+  echo "✅ Success: -c honored -b release (default branch is 'release')"
+  git checkout "update-from-something-new-${_sha}-rebase-strategy-theirs"
+  local output=''
+  if output=$(cat hello.txt) && [ "${output}" == "Hello World" ]; then
+    echo "${output}" && echo "✅ Success"
+  else
+    errcleanup
+  fi
+  _popd
+}
+
 run_test_cases() {
   test_defaults_with_existing_upstream_destination
   test_rebase_strategy_theirs_with_existing_upstream_destination
@@ -473,6 +507,7 @@ run_test_cases() {
   #test_defaults_add_orgteam
   test_defaults_destination_dne_yet_only_wat
   test_defaults_destination_dne_yet_only_toto
+  test_create_destination_with_nondefault_branch
   test_multipath_migration
 }
 
