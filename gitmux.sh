@@ -2319,7 +2319,7 @@ if ! _repo_existence="$(git fetch destination 2>&1)"; then
       errxit "Failed to configure git authentication via gh CLI"
     fi
     git remote --verbose show
-    # Rename default branch to trunk (gitmux convention) if needed
+    # Rename the new repo's default branch to the destination branch if needed
     _current_branch=$(git branch --show-current)
     if [[ "${_current_branch}" != "${destination_branch}" ]]; then
       log "Renaming branch ${_current_branch} to ${destination_branch}"
@@ -2343,12 +2343,12 @@ if ! _repo_existence="$(git fetch destination 2>&1)"; then
     # Our brand new repo destination branch needs at least one commit (to be the base branch of a PR).
     # This will also help remind us where this repository came from.
     git status
-    # A local 'trunk' branch probably already exists
-    if ! git checkout -b "gitmux-dest-${destination_branch}" destination/trunk; then
+    # The destination branch now exists on the 'destination' remote
+    if ! git checkout -b "gitmux-dest-${destination_branch}" "destination/${destination_branch}"; then
       errxit "Failed to checkout destination branch from new repository"
     fi
-    if ! git pull destination trunk; then
-      errxit "Failed to pull from destination trunk"
+    if ! git pull destination "${destination_branch}"; then
+      errxit "Failed to pull '${destination_branch}' from destination"
     fi
     # Unstage everything (from ${DESTINATION_PR_BRANCH_NAME})
     if ! _rm_output=$(git rm -r --cached . 2>&1); then
@@ -2360,7 +2360,7 @@ if ! _repo_existence="$(git fetch destination 2>&1)"; then
     if ! git commit --message 'Hello: this repository was created by gitmux.' --allow-empty; then
       log_warn "Failed to create initial commit - continuing anyway"
     fi
-    if ! git push destination "gitmux-dest-${destination_branch}:trunk"; then
+    if ! git push destination "gitmux-dest-${destination_branch}:${destination_branch}"; then
       errxit "Failed to push initial commit to destination repository"
     fi
     # Now go back to the build branch.
