@@ -175,7 +175,7 @@ createRepository "${GITHUB_OWNER}" "${DESTINATION_REPOSITORY_NAME}"
 repositoriesToDelete+=("${GITHUB_OWNER}/${DESTINATION_REPOSITORY_NAME}")
 git remote add destination_remote_name "https://${GITHUB_OWNER}:${GH_TOKEN}@${GH_HOST}/${GITHUB_OWNER}/${DESTINATION_REPOSITORY_NAME}.git"
 git fetch --update-head-ok destination_remote_name
-# This actually creates a local 'main' tracking branch.
+# Switch to the local 'main' branch that 'git init --initial-branch=main' created above.
 git checkout main
 # Now back to current branch.
 git checkout -b destination_current_branch --track destination_remote_name/main

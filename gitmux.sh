@@ -1396,7 +1396,7 @@ _WORKSPACE=$(pwd)
 
 # The following is unnecessary when doing a full clone.
 # Without a full clone, this procedure just doesnt work quite right.
-#git fetch --update-shallow --shallow-since=1month --update-head-ok --progress origin trunk
+#git fetch --update-shallow --shallow-since=1month --update-head-ok --progress origin main
 
 # If a non-default ref is specified, fetch it explicitly and perform a checkout.
 if [[ -n "${source_git_ref}" ]]; then
