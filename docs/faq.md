@@ -10,7 +10,7 @@ nav_order: 5
 
 ### Why doesn't gitmux push directly to my destination branch?
 
-That's dangerous. Pull requests provide an audit trail and allow review before merging. gitmux creates a unique feature branch for each sync (`update-from-<branch>-<sha>`).
+That's dangerous. Pull requests provide an audit trail and allow review before merging. gitmux creates a unique feature branch for each sync (e.g. `update-from-<branch>-<sha>-rebase-strategy-theirs`).
 
 ### Can I use a local directory as the source?
 
@@ -62,6 +62,21 @@ Use `\:` to escape literal colons:
 -m 'path\:with\:colons:destination'
 ```
 
+### Can I reassemble a file's history across renames?
+
+Yes. If a file was renamed over time, map each of its historical paths to the
+same destination with repeated `-m`. gitmux allows two mappings to share a
+destination as long as their sources differ (it warns that it's treating them as
+rename lineage):
+
+```bash
+./gitmux.sh \
+  -r source -t dest \
+  -m 'old/name.py:dot.py' \
+  -m 'new/name.py:dot.py' \
+  -s
+```
+
 ## Author Rewriting
 
 ### How do I remove AI-generated attribution from commits?
@@ -108,6 +123,13 @@ Use `--dry-run` (or `-D`). This shows you the source/destination, which commits 
 ### How do I see more detailed output?
 
 Use `-v` for verbose output (debug level), or set `--log-level debug` for maximum detail. Log levels from most to least verbose: `debug`, `info` (default), `warning`, `error`.
+
+### Why are all my commit dates the day I ran gitmux?
+
+By default gitmux preserves each commit's original authorship date as its
+committer date, so the extracted history keeps its real timeline. If your commits
+all show today's date, committer-date preservation was turned off — set
+`PRESERVE_COMMITTER_DATES=true` (the default) to keep the original dates.
 
 ### Why did gitmux fail before doing any work?
 

@@ -80,7 +80,27 @@ The diff algorithm determines how git figures out what changed between two versi
 ./gitmux.sh -r source -t dest -X patience  # shorthand
 ```
 
+## Preserving Commit Dates
+
+By default (`PRESERVE_COMMITTER_DATES=true`), gitmux passes
+`--committer-date-is-author-date` to the rebase, so each replayed commit keeps
+its **original authorship date** as its committer date. Without this, `git
+rebase` stamps every commit with the current time, collapsing an extracted
+history into a single day (GitHub orders and groups commits by committer date).
+
+Set `PRESERVE_COMMITTER_DATES=false` to restore git's default (committer date =
+now):
+
+```bash
+PRESERVE_COMMITTER_DATES=false ./gitmux.sh -r source -t dest
+```
+
 ## Custom Options with `-o`
+
+`-o` **replaces** gitmux's entire default rebase-options string (`--keep-empty
+--autostash --merge --strategy recursive` plus the histogram diff algorithm), so
+include any of those you still want, and it is mutually exclusive with `-X`.
+(Committer-date preservation is applied separately and is unaffected.)
 
 For advanced use cases, pass any valid `git rebase` options directly:
 

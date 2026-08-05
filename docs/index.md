@@ -23,7 +23,7 @@ Every commit, every blame, every bisect — preserved.
 ## Why gitmux?
 
 - **Full history** — Not a copy-paste. Every commit follows the code.
-- **PR-based** — Changes go through pull requests, never direct pushes.
+- **PR-based** — Changes to existing repos go through pull requests.
 - **10x faster** — Auto-uses [git-filter-repo](https://github.com/newren/git-filter-repo) when available.
 - **Multi-path** — Migrate multiple directories in one operation.
 
@@ -33,6 +33,8 @@ Every commit, every blame, every bisect — preserved.
 git clone https://github.com/stavxyz/gitmux.git
 cd gitmux && ./gitmux.sh -h
 ```
+
+**Requires:** `git` and `jq`. `gh` (GitHub CLI) is needed for `-s`, `-c`, and `-z`.
 
 **Optional** (10x speedup): `brew install git-filter-repo` or `pip install git-filter-repo`
 

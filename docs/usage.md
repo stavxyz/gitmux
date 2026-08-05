@@ -42,11 +42,16 @@ Use `-m` multiple times to migrate several paths in one operation:
 
 Use `\:` to escape literal colons in paths. Empty string or `.` means root.
 
+Two `-m` mappings may share the same **destination** as long as their
+**sources differ** — gitmux allows it (with a warning) so you can reassemble a
+file's history across renames, e.g. mapping both `old/name.py` and `new/name.py`
+to `dot.py`.
+
 ## Destination Options
 
 | Option | Description |
 |--------|-------------|
-| `-b <branch>` | Target branch (default: main/master) |
+| `-b <branch>` | Target branch in destination (default: main) |
 | `-c` | Create destination repo if missing (requires gh) |
 
 ## Rebase Options
@@ -54,7 +59,7 @@ Use `\:` to escape literal colons in paths. Empty string or `.` means root.
 | Option | Description |
 |--------|-------------|
 | `-X <strategy>` | `theirs` \| `ours` \| `patience` (default: theirs) |
-| `-o <options>` | Custom git rebase options |
+| `-o <options>` | Custom git rebase options (mutually exclusive with `-X`) |
 | `-i` | Interactive rebase mode |
 
 By default the rebase preserves each commit's original authorship date as its
@@ -77,12 +82,12 @@ See [Rebase Strategies]({% link rebase-strategies.md %}) for detailed guidance.
 
 | Option | Description |
 |--------|-------------|
-| `--author-name <name>` | Override author name for all commits |
-| `--author-email <email>` | Override author email for all commits |
-| `--committer-name <name>` | Override committer name |
-| `--committer-email <email>` | Override committer email |
-| `--coauthor-action <act>` | `claude` \| `all` \| `keep` |
-| `--dry-run` | Preview changes without modifying anything |
+| `-N`, `--author-name <name>` | Override author name for all commits |
+| `-E`, `--author-email <email>` | Override author email for all commits |
+| `-n`, `--committer-name <name>` | Override committer name |
+| `-e`, `--committer-email <email>` | Override committer email |
+| `-C`, `--coauthor-action <act>` | `claude` \| `all` \| `keep` |
+| `-D`, `--dry-run` | Preview changes without modifying anything |
 
 ### Co-author Actions
 
@@ -96,7 +101,7 @@ See [Rebase Strategies]({% link rebase-strategies.md %}) for detailed guidance.
 
 | Option | Description |
 |--------|-------------|
-| `--filter-backend <be>` | `filter-branch` \| `filter-repo` \| `auto` |
+| `-F`, `--filter-backend <be>` | `filter-branch` \| `filter-repo` \| `auto` (default: auto) |
 
 See [Filter Backend]({% link filter-backend.md %}) for details.
 
@@ -104,24 +109,47 @@ See [Filter Backend]({% link filter-backend.md %}) for details.
 
 | Option | Description |
 |--------|-------------|
-| `--log-level <level>` | `debug` \| `info` \| `warning` \| `error` |
-| `--skip-preflight` | Skip pre-flight validation checks |
+| `-L`, `--log-level <level>` | `debug` \| `info` \| `warning` \| `error` (default: info) |
+| `-S`, `--skip-preflight` | Skip pre-flight validation checks |
 | `-k` | Keep temp workspace for debugging |
 | `-v` | Verbose output (sets log level to debug) |
 | `-h` | Show help |
+| `-V`, `--version` | Show version and exit |
 
 ## Environment Variables
 
-All options can be set via environment variables:
+Every CLI option can also be set via an environment variable:
 
 | CLI Option | Environment Variable |
 |------------|---------------------|
+| `-r` | `SOURCE_REPOSITORY` |
+| `-t` | `DESTINATION_REPOSITORY` |
+| `-d` | `SUBDIRECTORY_FILTER` |
+| `-p` | `DESTINATION_PATH` |
+| `-g` | `SOURCE_GIT_REF` |
+| `-l` | `REV_LIST_FILES` |
+| `-b` | `DESTINATION_BRANCH` |
+| `-c` | `CREATE_NEW_REPOSITORY` |
+| `-s` | `SUBMIT_PR` |
+| `-i` | `INTERACTIVE_REBASE` |
+| `-k` | `KEEP_TMP_WORKSPACE` |
+| `-X` | `MERGE_STRATEGY_OPTION_FOR_REBASE` |
+| `-o` | `REBASE_OPTIONS` |
+| `-D`, `--dry-run` | `DRY_RUN` |
+| `-S`, `--skip-preflight` | `SKIP_PREFLIGHT` |
+| `-L`, `--log-level` | `GITMUX_LOG_LEVEL` |
+| `-F`, `--filter-backend` | `GITMUX_FILTER_BACKEND` |
 | `--author-name` | `GITMUX_AUTHOR_NAME` |
 | `--author-email` | `GITMUX_AUTHOR_EMAIL` |
 | `--committer-name` | `GITMUX_COMMITTER_NAME` |
 | `--committer-email` | `GITMUX_COMMITTER_EMAIL` |
 | `--coauthor-action` | `GITMUX_COAUTHOR_ACTION` |
-| `--filter-backend` | `GITMUX_FILTER_BACKEND` |
-| `--log-level` | `GITMUX_LOG_LEVEL` |
+
+Some knobs have no CLI flag and are set only via the environment:
+
+| Environment Variable | Default | Description |
+|----------------------|---------|-------------|
+| `PRESERVE_COMMITTER_DATES` | `true` | Preserve original authorship dates as committer dates on rebase (see [Rebase Options](#rebase-options)) |
+| `GH_HOST` | `github.com` | GitHub host used for `gh` operations |
 
 CLI options take precedence over environment variables.
