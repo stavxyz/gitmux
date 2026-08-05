@@ -50,7 +50,11 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
           GH_HOST: github.com
-          GITHUB_OWNER: ${{ github.repository_owner }}
+          # Owner of the throwaway test repos. Point the repo/org variable
+          # INTEGRATION_TEST_OWNER at a dedicated CI org so GH_TOKEN can be a
+          # token scoped to ONLY that org -- a leak or a buggy cleanup then can't
+          # reach real repos. Falls back to the repository owner when unset.
+          GITHUB_OWNER: ${{ vars.INTEGRATION_TEST_OWNER || github.repository_owner }}
         run: |
           echo "Running integration tests..."
           echo "Test repos will be created under: ${GITHUB_OWNER}"
@@ -60,9 +64,10 @@ jobs:
         if: failure() && steps.check-token.outputs.has_token == 'true'
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          GITHUB_OWNER: ${{ vars.INTEGRATION_TEST_OWNER || github.repository_owner }}
         run: |
-          echo "Cleaning up any leftover test repositories..."
-          repos=$(gh repo list --limit 100 --json nameWithOwner,name --jq '.[]|select(.name|startswith("gitmux_test_")).nameWithOwner' 2>/dev/null || echo "")
+          echo "Cleaning up any leftover test repositories under ${GITHUB_OWNER}..."
+          repos=$(gh repo list "${GITHUB_OWNER}" --limit 100 --json nameWithOwner,name --jq '.[]|select(.name|startswith("gitmux_test_")).nameWithOwner' 2>/dev/null || echo "")
           if [[ -n "$repos" ]]; then
             for r in $repos; do
               echo "Deleting leftover test repo: $r"
