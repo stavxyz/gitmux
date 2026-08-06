@@ -87,7 +87,6 @@ See [Rebase Strategies]({% link rebase-strategies.md %}) for detailed guidance.
 | `-n`, `--committer-name <name>` | Override committer name |
 | `-e`, `--committer-email <email>` | Override committer email |
 | `-C`, `--coauthor-action <act>` | `claude` \| `all` \| `keep` |
-| `-D`, `--dry-run` | Preview changes without modifying anything |
 
 ### Co-author Actions
 
@@ -111,6 +110,7 @@ See [Filter Backend]({% link filter-backend.md %}) for details.
 |--------|-------------|
 | `-L`, `--log-level <level>` | `debug` \| `info` \| `warning` \| `error` (default: info) |
 | `-S`, `--skip-preflight` | Skip pre-flight validation checks |
+| `-D`, `--dry-run` | Preview changes without modifying anything |
 | `-k` | Keep temp workspace for debugging |
 | `-v` | Verbose output (sets log level to debug) |
 | `-h` | Show help |
@@ -118,7 +118,7 @@ See [Filter Backend]({% link filter-backend.md %}) for details.
 
 ## Environment Variables
 
-Every CLI option can also be set via an environment variable:
+Most CLI options can also be set via an environment variable:
 
 | CLI Option | Environment Variable |
 |------------|---------------------|
@@ -139,11 +139,11 @@ Every CLI option can also be set via an environment variable:
 | `-S`, `--skip-preflight` | `SKIP_PREFLIGHT` |
 | `-L`, `--log-level` | `GITMUX_LOG_LEVEL` |
 | `-F`, `--filter-backend` | `GITMUX_FILTER_BACKEND` |
-| `--author-name` | `GITMUX_AUTHOR_NAME` |
-| `--author-email` | `GITMUX_AUTHOR_EMAIL` |
-| `--committer-name` | `GITMUX_COMMITTER_NAME` |
-| `--committer-email` | `GITMUX_COMMITTER_EMAIL` |
-| `--coauthor-action` | `GITMUX_COAUTHOR_ACTION` |
+| `-N`, `--author-name` | `GITMUX_AUTHOR_NAME` |
+| `-E`, `--author-email` | `GITMUX_AUTHOR_EMAIL` |
+| `-n`, `--committer-name` | `GITMUX_COMMITTER_NAME` |
+| `-e`, `--committer-email` | `GITMUX_COMMITTER_EMAIL` |
+| `-C`, `--coauthor-action` | `GITMUX_COAUTHOR_ACTION` |
 
 Some knobs have no CLI flag and are set only via the environment:
 

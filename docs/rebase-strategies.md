@@ -98,8 +98,9 @@ PRESERVE_COMMITTER_DATES=false ./gitmux.sh -r source -t dest
 ## Custom Options with `-o`
 
 `-o` **replaces** gitmux's entire default rebase-options string (`--keep-empty
---autostash --merge --strategy recursive` plus the histogram diff algorithm), so
-include any of those you still want, and it is mutually exclusive with `-X`.
+--autostash --merge --strategy recursive --strategy-option theirs --strategy-option
+diff-algorithm=histogram`), so include any of those you still want, and it is
+mutually exclusive with `-X`.
 (Committer-date preservation is applied separately and is unaffected.)
 
 For advanced use cases, pass any valid `git rebase` options directly:
