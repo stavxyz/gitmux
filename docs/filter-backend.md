@@ -119,4 +119,9 @@ gitmux provides the same features regardless of backend:
 - Co-author removal (`--coauthor-action`)
 - Specific file extraction (`-l`)
 
-The backend choice only affects performance, not functionality.
+The backend choice is almost entirely about performance. The one functional
+difference: setting a **committer** identity different from the **author**
+(`--committer-name`/`--committer-email` diverging from `--author-*`) is only
+supported by the `filter-branch` backend. Under `filter-repo`, gitmux applies
+the same name/email to both author and committer and warns — use
+`--filter-backend filter-branch` if you need them to differ.
